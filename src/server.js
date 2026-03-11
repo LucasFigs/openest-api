@@ -1,12 +1,15 @@
 const express = require('express');
 const db = require('./models');
 const userRoutes = require('./routes/userRoutes'); // Importando sua organização
+const healthRoutes = require('./routes/healthRoutes'); // Importando sua organização
+
 
 const app = express();
 app.use(express.json());
 
 // Definindo o prefixo das rotas (padrão de API)
 app.use('/api/users', userRoutes);
+app.use('/health', healthRoutes); // Rota direta para monitoramento
 
 const PORT = 3000;
 
