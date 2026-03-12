@@ -39,3 +39,8 @@ Antes de começar, você precisará ter instalado em sua máquina:
 git clone https://github.com/openest/openest-api.git
 cd openest-api
 ```
+
+## 🛠️ Configuração
+
+1. Crie uma cópia do arquivo `.env.example` e renomeie para `.env`.
+2. Preencha as variáveis de ambiente com suas credenciais locais.
