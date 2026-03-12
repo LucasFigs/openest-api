@@ -13,11 +13,25 @@ Backend da plataforma Openest, desenvolvido com Node.js, Express e PostgreSQL.
 
 ## 📋 Pré-requisitos
 
-- Node.js 18.x ou superior
-- PostgreSQL 14.x ou superior
-- NPM ou Yarn
+Antes de começar, você precisará ter instalado em sua máquina:
 
-## 🔧 Instalação
+### Obrigatórios
+
+| Ferramenta     | Versão            | Instalação                                       |
+| -------------- | ----------------- | ------------------------------------------------ |
+| **Node.js**    | 20.x LTS          | [Download](https://nodejs.org/)                  |
+| **npm**        | 10.x (já incluso) | Vem com Node.js                                  |
+| **PostgreSQL** | 15.x              | [Download](https://www.postgresql.org/download/) |
+
+### Opcionais (recomendados)
+
+| Ferramenta                     | Uso                               | Instalação                                                               |
+| ------------------------------ | --------------------------------- | ------------------------------------------------------------------------ |
+| **NVM** (Node Version Manager) | Gerenciar versões do Node         | [Instalação NVM](https://github.com/nvm-sh/nvm#installing-and-updating)  |
+| **DBeaver** ou **pgAdmin**     | Interface gráfica para PostgreSQL | [DBeaver](https://dbeaver.io/) / [pgAdmin](https://www.pgadmin.org/)     |
+| **Insomnia** ou **Postman**    | Testar API                        | [Insomnia](https://insomnia.rest/) / [Postman](https://www.postman.com/) |
+
+## 🚀 Como rodar o projeto
 
 1. Clone o repositório
 
