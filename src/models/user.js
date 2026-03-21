@@ -15,7 +15,8 @@ module.exports = (sequelize) => {
     },
     password_hash: {
       type: DataTypes.STRING,
-      allowNull: false
+      allowNull: false,
+      field: 'password_hash'
     },
     name: {
       type: DataTypes.STRING,
