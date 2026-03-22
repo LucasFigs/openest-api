@@ -13,5 +13,6 @@ router.get('/health', (req, res) => {
 
 // Rota para registrar um novo usuário
 router.post('/register', userController.register);
+router.post('/login', userController.login);
 
 module.exports = router;
