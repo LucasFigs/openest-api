@@ -1,4 +1,5 @@
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const db = require('../models');
 
 // Função para cadastrar usuário REAL no banco
@@ -44,5 +45,46 @@ const register = async (req, res) => {
     return res.status(500).json({ error: "Erro interno ao processar cadastro." });
   }
 };
+// Função para login de usuário
+const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-module.exports = { register };
+    // 1. Buscar usuário pelo email
+    const user = await db.User.findOne({ where: { email } });
+
+    if (!user) {
+      return res.status(401).json({ message: "E-mail ou senha incorretos." });
+    }
+
+    // 2. Comparar a senha digitada com o hash do banco
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: "E-mail ou senha incorretos." });
+    }
+
+    // 3. Se tudo estiver OK, gerar o Token JWT
+    const token = jwt.sign(
+      { id: user.id, email: user.email }, // Payload (o que vai dentro do token)
+      process.env.JWT_SECRET,             // Chave secreta
+      { expiresIn: process.env.JWT_EXPIRES_IN } // Tempo de validade
+    );
+
+    // 4. Retornar os dados básicos + Token
+    return res.status(200).json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email
+      },
+      token
+    });
+
+  } catch (error) {
+    console.error('Erro no login:', error);
+    return res.status(500).json({ message: "Erro interno ao realizar login." });
+  }
+};
+
+module.exports = { register, login };  
