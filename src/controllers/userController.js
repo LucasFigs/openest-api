@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../models');
@@ -87,4 +88,89 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { register, login };  
+// CONTROLLER DO POSTGRESQL
+
+const forgotPassword = async (req, res) => {
+    const { email } = req.body;
+
+    try {
+        // 1. Verifica se o usuário existe usando o Sequelize (Query pura)
+        const [userCheck] = await db.sequelize.query(
+            'SELECT id FROM "Users" WHERE email = $1',
+            { 
+                bind: [email], 
+                type: db.sequelize.QueryTypes.SELECT 
+            }
+        );
+        
+        // Se o resultado for vazio, avisamos o usuário (por segurança, sem confirmar se o e-mail existe)
+        if (!userCheck) {
+            return res.json({ message: "Se este e-mail estiver cadastrado, um link de recuperação foi enviado." });
+        }
+
+        // 2. Gera um token aleatório e data de expiração (1 hora)
+        const token = crypto.randomBytes(20).toString('hex');
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 1);
+
+        // 3. Salva na tabela password_resets usando bind para proteção contra SQL Injection
+        await db.sequelize.query(
+            'INSERT INTO password_resets (email, token, expires_at) VALUES ($1, $2, $3)',
+            { 
+                bind: [email, token, expiresAt] 
+            }
+        );
+
+        // 4. Mock do envio de e-mail (Logamos no console por enquanto)
+        console.log(`--- ENVIO DE E-MAIL (MOCK) ---`);
+        console.log(`Para: ${email}`);
+        console.log(`Link: http://localhost:3000/reset-password?token=${token}`);
+        console.log(`------------------------------`);
+
+        res.json({ message: "Se este e-mail estiver cadastrado, um link de recuperação foi enviado." });
+
+    } catch (error) {
+        console.error("Erro no forgotPassword:", error);
+        res.status(500).json({ error: "Erro interno no servidor." });
+    }
+};
+
+const resetPassword = async (req, res) => {
+    const { token, newPassword } = req.body;
+
+    try {
+        // 1. Busca o token no banco e verifica expiração
+        const [resetRequest] = await db.sequelize.query(
+            'SELECT email, expires_at FROM password_resets WHERE token = $1',
+            { bind: [token], type: db.sequelize.QueryTypes.SELECT }
+        );
+
+        if (!resetRequest || new Date() > new Date(resetRequest.expires_at)) {
+            return res.status(400).json({ error: "Token inválido ou expirado." });
+        }
+
+        // 2. Gera o Hash da nova senha
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // 3. Atualiza a senha na tabela "Users"
+        await db.sequelize.query(
+            'UPDATE "Users" SET password_hash = $1 WHERE email = $2',
+            { bind: [hashedPassword, resetRequest.email] }
+        );
+
+        // 4. Deleta o token para não ser usado de novo
+        await db.sequelize.query(
+            'DELETE FROM password_resets WHERE token = $1',
+            { bind: [token] }
+        );
+
+        res.json({ message: "Senha atualizada com sucesso! Agora você já pode logar." });
+
+    } catch (error) {
+        console.error("Erro no resetPassword:", error);
+        res.status(500).json({ error: "Erro interno ao redefinir senha." });
+    }
+};
+
+module.exports = { register, login, forgotPassword, resetPassword };
