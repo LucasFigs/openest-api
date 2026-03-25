@@ -173,4 +173,27 @@ const resetPassword = async (req, res) => {
     }
 };
 
-module.exports = { register, login, forgotPassword, resetPassword };
+const uploadPhoto = async (req, res) => {
+  try {
+    const imageUrl = req.file.path; // URL vinda do Cloudinary que já testamos
+
+    // Como você está logado como Aistides, o ID vem do token
+    const userId = req.user.id; 
+
+    // Atualiza o banco de dados PostgreSQL do projeto
+    await db.User.update(
+      { foto_url: imageUrl }, 
+      { where: { id: userId } }
+    );
+
+    res.json({
+      message: "Foto de perfil atualizada com sucesso!",
+      url: imageUrl
+    });
+  } catch (error) {
+    console.error("Erro no upload:", error);
+    res.status(500).json({ error: "Erro ao salvar a foto no perfil." });
+  }
+};
+
+module.exports = { register, login, forgotPassword, resetPassword, uploadPhoto };

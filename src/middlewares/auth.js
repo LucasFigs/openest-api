@@ -28,9 +28,11 @@ module.exports = (req, res, next) => {
         }
 
         // 3. Se válido, anexa os dados no req para as próximas funções usarem
-        req.userId = decoded.id;
-        req.userEmail = decoded.email;
+       req.user = {
+         id: decoded.id,
+         email: decoded.email
+};
 
-        return next(); // Pode seguir para a rota
+return next();
     });
 };

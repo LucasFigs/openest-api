@@ -3,6 +3,8 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const uploadCloud = require('../config/cloudinary');
 const authMiddleware = require('../middlewares/auth');
+const upload = require('../services/uploadService');
+const verifyToken = require('../middlewares/auth');
 
 // Rota de teste para confirmar que a estrutura funciona
 router.get('/health', (req, res) => {
@@ -18,6 +20,7 @@ router.post('/register', userController.register);
 router.post('/login', userController.login);
 router.post('/forgot-password', userController.forgotPassword);
 router.post('/reset-password', userController.resetPassword);
+router.post('/upload-photo', verifyToken, upload.single('image'), userController.uploadPhoto);
 
 // Rota temporária para testar o upload
 router.post('/upload-test', authMiddleware, uploadCloud.single('image'), (req, res) => {
@@ -36,6 +39,22 @@ router.post('/upload-test', authMiddleware, uploadCloud.single('image'), (req, r
         url: req.file.path,
         userLogado: req.userId
     });
+});
+
+// Rota de upload de foto de perfil
+// 'image' é o nome do campo que o frontend vai ter que mandar
+router.post('/upload-photo', upload.single('image'), (req, res) => {
+  try {
+    // Se deu certo, o link da imagem está aqui:
+    const imageUrl = req.file.path; 
+    
+    res.json({
+      message: "Upload realizado com sucesso!",
+      url: imageUrl // Essa é a URL pública que o critério de aceite pede!
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Erro ao fazer upload da imagem." });
+  }
 });
 
 
