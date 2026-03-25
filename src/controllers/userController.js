@@ -8,37 +8,47 @@ const register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Validação simples de campos
+   // 1. Erro 400: Validação de campos (Critério do Gerente)
     if (!name || !email || !password || password.length < 6) {
       return res.status(400).json({ 
         error: "Dados inválidos. Nome, e-mail e senha (mín. 6 caracteres) são obrigatórios." 
       });
     }
 
-    // Verificar se o e-mail já existe
+    // 2. Erro 409: Verificar se o e-mail já existe (Critério do Gerente)
     const userExists = await db.User.findOne({ where: { email } });
     if (userExists) {
       return res.status(409).json({ error: "Este e-mail já está cadastrado." });
     }
 
-    // Gerar o "salt" e o Hash
+    // 3. Criptografia
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // 4. Criar o usuário no banco de dados (Task T014 + T015)
+    // 4. Criar o usuário
     const newUser = await db.User.create({
       name,
       email,
-      password_hash: hashedPassword // Nome da coluna que definida na Migration
+      password_hash: hashedPassword
     });
 
-    // 5. Preparar resposta (Removendo a senha por segurança)
-    const userResponse = newUser.toJSON();
-    delete userResponse.password_hash;
+    // 5. LOGIN AUTOMÁTICO (Opção 1 solicitada pelo Gerente)
+    // Geramos o token imediatamente após o cadastro
+    const token = jwt.sign(
+      { id: newUser.id, email: newUser.email },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '1d' }
+    );
 
+    // 6. Resposta completa para o Front-end
     return res.status(201).json({
       message: "Usuário cadastrado com sucesso!",
-      user: userResponse
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email
+      },
+      token // O Front usa isso para logar o usuário na hora
     });
 
   } catch (error) {
@@ -46,6 +56,7 @@ const register = async (req, res) => {
     return res.status(500).json({ error: "Erro interno ao processar cadastro." });
   }
 };
+
 // Função para login de usuário
 const login = async (req, res) => {
   try {
