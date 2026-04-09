@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit'); // Importa o rate limiter
 const db = require('./models'); // Importa a configuração do Sequelize
 const userRoutes = require('./routes/userRoutes'); // Importando sua organização
 const healthRoutes = require('./routes/healthRoutes'); // Importando sua organização
+const interactionRoutes = require('./routes/interactionRoutes'); // Importando a nova rota de interações
 
 
 
@@ -26,7 +27,8 @@ app.use(limiter);
 // ROTAS
 // Definindo o prefixo das rotas (padrão de API)
 app.use('/api/users', userRoutes);
-app.use('/health', healthRoutes); // Rota direta para monitoramento
+app.use('/health', healthRoutes); 
+app.use('/api', interactionRoutes);// Rota direta para monitoramento
 
 const PORT = 3000;
 
