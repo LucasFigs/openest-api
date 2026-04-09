@@ -1,31 +1,27 @@
-// LIKE OU PASS
+//MATCH
 'use strict';
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('Interactions', {
+    await queryInterface.createTable('Matches', {
       id: {
         allowNull: false,
         primaryKey: true,
         type: Sequelize.UUID,
         defaultValue: Sequelize.UUIDV4
       },
-      from_user_id: {
+      user1_id: {
         type: Sequelize.UUID,
         allowNull: false,
-        references: { model: 'Users', key: 'id' }, // FK para Users
+        references: { model: 'Users', key: 'id' },
         onUpdate: 'CASCADE',
         onDelete: 'CASCADE'
       },
-      to_user_id: {
+      user2_id: {
         type: Sequelize.UUID,
         allowNull: false,
-        references: { model: 'Users', key: 'id' }, // FK para Users
+        references: { model: 'Users', key: 'id' },
         onUpdate: 'CASCADE',
         onDelete: 'CASCADE'
-      },
-      type: {
-        type: Sequelize.STRING, // 'like' ou 'pass'
-        allowNull: false
       },
       created_at: {
         allowNull: false,
@@ -39,11 +35,18 @@ module.exports = {
       }
     });
 
-    // Cria índices para performance (critério de aceite)
-    await queryInterface.addIndex('Interactions', ['from_user_id']);
-    await queryInterface.addIndex('Interactions', ['to_user_id']);
+    // Criar constraint de unicidade para evitar duplicidade (user1_id, user2_id)
+    await queryInterface.addConstraint('Matches', {
+      fields: ['user1_id', 'user2_id'],
+      type: 'unique',
+      name: 'unique_user_match'
+    });
+
+    // Índice para consultas rápidas
+    await queryInterface.addIndex('Matches', ['user1_id']);
+    await queryInterface.addIndex('Matches', ['user2_id']);
   },
   down: async (queryInterface, Sequelize) => {
-    await queryInterface.dropTable('Interactions');
+    await queryInterface.dropTable('Matches');
   }
 };
