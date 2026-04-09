@@ -37,6 +37,12 @@ db.sequelize.authenticate()
   .then(() => {
     console.log('✅ Conexão com o Banco: OK');
     console.log('📂 Estrutura de Pastas: OK');
+    
+    // Adicionar esta linha:
+    return db.sequelize.sync({});
+  })
+  .then(() => {
+    console.log('✅ Tabelas sincronizadas: OK');
     app.listen(PORT, () => {
       console.log(`🚀 Openest API segura rodando em http://localhost:${PORT}`);
     });
