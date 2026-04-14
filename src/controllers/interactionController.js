@@ -63,4 +63,33 @@ const curtirPerfil = async (req, res) => {
   }
 };
 
-module.exports = { curtirPerfil };
+const passarPerfil = async (req, res) => {
+  const from_user_id = req.user.id;
+  const to_user_id = req.params.usuarioId;
+
+  try {
+    // 1. Validar se não está passando em si mesmo
+    if (from_user_id === to_user_id) {
+      return res.status(400).json({ message: "Você não pode passar a si mesmo." });
+    }
+
+    // 2. Registrar a interação do tipo 'pass'
+    await Interaction.create({
+      from_user_id,
+      to_user_id,
+      type: 'pass'
+    });
+
+    return res.status(201).json({ 
+      message: "Interação registrada (pass)!", 
+      match: false 
+    });
+
+  } catch (error) {
+    console.error("Erro na T035:", error);
+    return res.status(500).json({ error: "Erro ao processar 'passar'." });
+  }
+};
+
+// Não esqueça de exportar a nova função no final do arquivo:
+module.exports = { curtirPerfil, passarPerfil };
