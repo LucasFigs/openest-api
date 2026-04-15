@@ -207,4 +207,184 @@ const uploadPhoto = async (req, res) => {
   }
 };
 
-module.exports = { register, login, forgotPassword, resetPassword, uploadPhoto };
+const obterPerfil = async (req, res) => {
+  try {
+    const userId = req.user.id; // ID vindo do middleware de autenticação
+
+    // Busca os dados no PostgreSQL excluindo a senha
+    const user = await db.User.findByPk(userId, {
+      attributes: { exclude: ['password_hash'] }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "Usuário não encontrado." });
+    }
+
+    return res.status(200).json(user);
+
+  } catch (error) {
+    console.error("Erro na T024:", error);
+    return res.status(500).json({ error: "Erro interno ao obter dados do perfil." });
+  }
+};
+
+const atualizarPerfil = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { name, birth_date, bio, status_relacionamento, modo_discreto } = req.body;
+
+    // 1. Filtrar apenas campos permitidos (White-list)
+    const camposParaAtualizar = {};
+    if (name !== undefined) camposParaAtualizar.name = name;
+    if (birth_date !== undefined) camposParaAtualizar.birth_date = birth_date;
+    if (bio !== undefined) camposParaAtualizar.bio = bio;
+    if (status_relacionamento !== undefined) camposParaAtualizar.status_relacionamento = status_relacionamento;
+    if (modo_discreto !== undefined) camposParaAtualizar.modo_discreto = modo_discreto;
+
+    // 2. Verificar se há algo para atualizar
+    if (Object.keys(camposParaAtualizar).length === 0) {
+      return res.status(400).json({ error: "Nenhum campo válido enviado para atualização." });
+    }
+
+    // 3. Executar atualização no Sequelize
+    const [updated] = await db.User.update(camposParaAtualizar, {
+      where: { id: userId }
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: "Usuário não encontrado." });
+    }
+
+    // 4. Buscar e retornar os dados atualizados (exceto senha)
+    const userAtualizado = await db.User.findByPk(userId, {
+      attributes: { exclude: ['password_hash'] }
+    });
+
+    return res.status(200).json({
+      message: "Perfil atualizado com sucesso!",
+      user: userAtualizado
+    });
+
+  } catch (error) {
+    console.error("Erro na T025:", error);
+    return res.status(500).json({ error: "Erro interno ao atualizar perfil." });
+  }
+};
+
+const buscarPerfis = async (req, res) => {
+  try {
+
+    const { Op } = db.Sequelize;
+    const userId = req.user.id;
+    // Pega os parâmetros da URL (Query Params) com valores padrão
+    const { 
+      page = 1, 
+      limit = 10, 
+      idade_min, 
+      idade_max, 
+      status 
+    } = req.query;
+    
+    const offset = (page - 1) * limit;
+
+    // 1. Buscar IDs que o usuário logado já interagiu (Like ou Pass)
+    const interagidos = await db.Interaction.findAll({
+      where: { from_user_id: userId },
+      attributes: ['to_user_id']
+    });
+
+    // Criamos uma lista de IDs para esconder da busca
+    const idsParaExcluir = interagidos.map(i => i.to_user_id);
+    idsParaExcluir.push(userId); // Adiciona o próprio ID para não se ver na busca
+
+    // 2. Montar o filtro (Where Clause)
+    let whereClause = {
+      id: { [Op.notIn]: idsParaExcluir },
+      modo_discreto: false // Critério da Task: ocultar perfis discretos
+    };
+
+    // Filtros opcionais de query
+    if (status) {
+      whereClause.status_relacionamento = status;
+    }
+    
+   // 2. FILTROS AVANÇADO
+     // Lógica de idade: calcula a data limite baseada no ano atual
+    if (idade_min || idade_max) {
+      const hoje = new Date();
+      whereClause.data_nascimento = {};
+
+      if (idade_min) {
+        // Ex: 18 anos -> nascidos antes de hoje em (ano_atual - 18)
+        const dataMinima = new Date(hoje.getFullYear() - idade_min, hoje.getMonth(), hoje.getDate());
+        whereClause.data_nascimento[Op.lte] = dataMinima;
+      }
+
+      if (idade_max) {
+        // Ex: 30 anos -> nascidos depois de hoje em (ano_atual - 31)
+        const dataMaxima = new Date(hoje.getFullYear() - idade_max - 1, hoje.getMonth(), hoje.getDate());
+        whereClause.data_nascimento[Op.gte] = dataMaxima;
+      }
+    }
+
+    // Suporte a múltipla seleção de status (se vier como array ou string única)
+    if (status) {
+      whereClause.status_relacionamento = { 
+        [Op.in]: Array.isArray(status) ? status : [status] 
+      };
+    }
+
+    // Filtro de Interesses/Tags (usando operador overlap do Postgres para arrays)
+    if (req.query.interesses) {
+      const tags = Array.isArray(req.query.interesses) ? req.query.interesses : [req.query.interesses];
+      whereClause.interesses = { [Op.overlap]: tags };
+    }
+
+    // 3. Busca paginada no PostgreSQL
+    let { count, rows: perfis } = await db.User.findAndCountAll({
+      where: whereClause,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      attributes: ['id', 'name', 'idade', 'status_relacionamento', 'foto_url', 'bio'],
+      order: [['createdAt', 'DESC']]
+    });
+
+    let fallback_aplicado = false;
+    const THRESHOLD_MINIMO = 5; // Critério definido na Task T039
+
+    // 4. Lógica de Fallback: Expandir filtros se houver poucos resultados
+    if (count < THRESHOLD_MINIMO) {
+      console.log(`[LOG] Fallback acionado. Resultados insuficientes: ${count}`);
+      fallback_aplicado = true;
+
+      // Expansão gradativa: Removemos o filtro de status para tentar encontrar mais perfis
+      delete whereClause.status_relacionamento;
+
+      // Segunda tentativa com filtros relaxados
+      const buscaFallback = await db.User.findAndCountAll({
+        where: whereClause,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        attributes: ['id', 'name', 'idade', 'status_relacionamento', 'foto_url', 'bio'],
+        order: [['createdAt', 'DESC']]
+      });
+
+      perfis = buscaFallback.rows;
+      count = buscaFallback.count;
+    }
+
+    return res.status(200).json({
+      total_resultados: count,
+      total_paginas: Math.ceil(count / limit),
+      pagina_atual: parseInt(page),
+      fallback_aplicado, // Indicação exigida nos critérios de aceite
+      perfis
+    });
+
+  } catch (error) {
+    console.error("Erro na busca T039:", error);
+    return res.status(500).json({ error: "Erro interno ao buscar perfis." });
+  }
+};
+
+module.exports = { register, login, forgotPassword, resetPassword, uploadPhoto, buscarPerfis, obterPerfil, atualizarPerfil };

@@ -4,7 +4,7 @@ const userController = require('../controllers/userController');
 const uploadCloud = require('../config/cloudinary');
 const authMiddleware = require('../middlewares/auth');
 const upload = require('../services/uploadService');
-const verifyToken = require('../middlewares/auth');
+const verifyToken = require('../middlewares/auth'); //<---- verificar se vai ocorrer problemas com isto
 
 // Rota de teste para confirmar que a estrutura funciona
 router.get('/health', (req, res) => {
@@ -21,6 +21,9 @@ router.post('/login', userController.login);
 router.post('/forgot-password', userController.forgotPassword);
 router.post('/reset-password', userController.resetPassword);
 router.post('/upload-photo', verifyToken, upload.single('image'), userController.uploadPhoto);
+router.get('/perfil', authMiddleware, userController.obterPerfil);
+router.put('/perfil', authMiddleware, userController.atualizarPerfil);
+router.get('/buscar', authMiddleware, userController.buscarPerfis);
 
 // Rota temporária para testar o upload
 router.post('/upload-test', authMiddleware, uploadCloud.single('image'), (req, res) => {
