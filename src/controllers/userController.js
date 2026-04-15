@@ -207,4 +207,70 @@ const uploadPhoto = async (req, res) => {
   }
 };
 
-module.exports = { register, login, forgotPassword, resetPassword, uploadPhoto };
+const buscarPerfis = async (req, res) => {
+  try {
+
+    const { Op } = db.Sequelize;
+    const userId = req.user.id;
+    // Pega os parâmetros da URL (Query Params) com valores padrão
+    const { 
+      page = 1, 
+      limit = 10, 
+      idade_min, 
+      idade_max, 
+      status 
+    } = req.query;
+    
+    const offset = (page - 1) * limit;
+
+    // 1. Buscar IDs que o usuário logado já interagiu (Like ou Pass)
+    const interagidos = await db.Interaction.findAll({
+      where: { from_user_id: userId },
+      attributes: ['to_user_id']
+    });
+
+    // Criamos uma lista de IDs para esconder da busca
+    const idsParaExcluir = interagidos.map(i => i.to_user_id);
+    idsParaExcluir.push(userId); // Adiciona o próprio ID para não se ver na busca
+
+    // 2. Montar o filtro (Where Clause)
+    let whereClause = {
+      id: { [Op.notIn]: idsParaExcluir },
+      modo_discreto: false // Critério da Task: ocultar perfis discretos
+    };
+
+    // Filtros opcionais de query
+    if (status) {
+      whereClause.status_relacionamento = status;
+    }
+    
+    // Filtro de idade (se você tiver a coluna 'idade' no banco)
+    if (idade_min || idade_max) {
+      whereClause.idade = {};
+      if (idade_min) whereClause.idade[Op.gte] = parseInt(idade_min);
+      if (idade_max) whereClause.idade[Op.lte] = parseInt(idade_max);
+    }
+
+    // 3. Busca paginada no PostgreSQL
+    const { count, rows: perfis } = await db.User.findAndCountAll({
+      where: whereClause,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      attributes: ['id', 'name', 'idade', 'status_relacionamento', 'foto_url', 'bio'],
+      order: [['createdAt', 'DESC']]
+    });
+
+    return res.status(200).json({
+      total_resultados: count,
+      total_paginas: Math.ceil(count / limit),
+      pagina_atual: parseInt(page),
+      perfis
+    });
+
+  } catch (error) {
+    console.error("Erro na busca T037:", error);
+    return res.status(500).json({ error: "Erro interno ao buscar perfis." });
+  }
+};
+
+module.exports = { register, login, forgotPassword, resetPassword, uploadPhoto, buscarPerfis };
