@@ -207,6 +207,27 @@ const uploadPhoto = async (req, res) => {
   }
 };
 
+const obterPerfil = async (req, res) => {
+  try {
+    const userId = req.user.id; // ID vindo do middleware de autenticação
+
+    // Busca os dados no PostgreSQL excluindo a senha
+    const user = await db.User.findByPk(userId, {
+      attributes: { exclude: ['password_hash'] }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "Usuário não encontrado." });
+    }
+
+    return res.status(200).json(user);
+
+  } catch (error) {
+    console.error("Erro na T024:", error);
+    return res.status(500).json({ error: "Erro interno ao obter dados do perfil." });
+  }
+};
+
 const buscarPerfis = async (req, res) => {
   try {
 
@@ -323,4 +344,4 @@ const buscarPerfis = async (req, res) => {
   }
 };
 
-module.exports = { register, login, forgotPassword, resetPassword, uploadPhoto, buscarPerfis };
+module.exports = { register, login, forgotPassword, resetPassword, uploadPhoto, buscarPerfis, obterPerfil };
