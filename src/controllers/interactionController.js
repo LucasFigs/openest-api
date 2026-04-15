@@ -1,5 +1,32 @@
 const { Interaction, Match } = require('../models');
 
+// Função auxiliar para verificar se houve um match
+const checkMatch = async (userA, userB) => {
+  // Verifica se o Usuário B já curtiu o Usuário A
+  const interactionBack = await Interaction.findOne({
+    where: {
+      from_user_id: userB,
+      to_user_id: userA,
+      type: 'like'
+    }
+  });
+
+  if (interactionBack) {
+    // Se sim, cria o registro na tabela Matches
+    const newMatch = await Match.create({
+      user1_id: userA,
+      user2_id: userB
+    });
+
+    // TODO: Disparar notificação (Task futura ou log por enquanto)
+    console.log(`🔥 MATCH REAL: ${userA} & ${userB}`);
+    
+    return newMatch;
+  }
+
+  return null;
+};
+
 const curtirPerfil = async (req, res) => {
   const from_user_id = req.user.id; // ID de quem está logado (via token)
   const to_user_id = req.params.usuarioId; // ID de quem está sendo curtido
@@ -24,37 +51,14 @@ const curtirPerfil = async (req, res) => {
       from_user_id,
       to_user_id,
       type: 'like'
-    });
+  });
 
-    // 4. ENGINE DE MATCH: Verificar se o outro usuário já curtiu este
-    const matchReverso = await Interaction.findOne({
-      where: {
-        from_user_id: to_user_id,
-        to_user_id: from_user_id,
-        type: 'like'
-      }
-    });
+    const matchResult = await checkMatch(from_user_id, to_user_id);
 
-    if (matchReverso) {
-      // Registrar na tabela de Matches
-      // Usamos uma lógica simples de ID menor primeiro para evitar duplicidade na lógica
-      const [user1, user2] = from_user_id < to_user_id 
-        ? [from_user_id, to_user_id] 
-        : [to_user_id, from_user_id];
-
-      await Match.findOrCreate({
-        where: { user1_id: user1, user2_id: user2 }
-      });
-
-      return res.status(201).json({ 
-        message: "Interação registrada!", 
-        match: true 
-      });
-    }
-
-    return res.status(201).json({ 
-      message: "Interação registrada!", 
-      match: false 
+    return res.status(201).json({
+        message: "Interação registrada!",
+        match: !!matchResult,
+        data: matchResult
     });
 
   } catch (error) {
@@ -91,5 +95,4 @@ const passarPerfil = async (req, res) => {
   }
 };
 
-// Não esqueça de exportar a nova função no final do arquivo:
 module.exports = { curtirPerfil, passarPerfil };
