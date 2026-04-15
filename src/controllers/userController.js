@@ -277,7 +277,7 @@ const buscarPerfis = async (req, res) => {
     }
 
     // 3. Busca paginada no PostgreSQL
-    const { count, rows: perfis } = await db.User.findAndCountAll({
+    let { count, rows: perfis } = await db.User.findAndCountAll({
       where: whereClause,
       limit: parseInt(limit),
       offset: parseInt(offset),
@@ -285,15 +285,40 @@ const buscarPerfis = async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    let fallback_aplicado = false;
+    const THRESHOLD_MINIMO = 5; // Critério definido na Task T039
+
+    // 4. Lógica de Fallback: Expandir filtros se houver poucos resultados
+    if (count < THRESHOLD_MINIMO) {
+      console.log(`[LOG] Fallback acionado. Resultados insuficientes: ${count}`);
+      fallback_aplicado = true;
+
+      // Expansão gradativa: Removemos o filtro de status para tentar encontrar mais perfis
+      delete whereClause.status_relacionamento;
+
+      // Segunda tentativa com filtros relaxados
+      const buscaFallback = await db.User.findAndCountAll({
+        where: whereClause,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        attributes: ['id', 'name', 'idade', 'status_relacionamento', 'foto_url', 'bio'],
+        order: [['createdAt', 'DESC']]
+      });
+
+      perfis = buscaFallback.rows;
+      count = buscaFallback.count;
+    }
+
     return res.status(200).json({
       total_resultados: count,
       total_paginas: Math.ceil(count / limit),
       pagina_atual: parseInt(page),
+      fallback_aplicado, // Indicação exigida nos critérios de aceite
       perfis
     });
 
   } catch (error) {
-    console.error("Erro na busca T037:", error);
+    console.error("Erro na busca T039:", error);
     return res.status(500).json({ error: "Erro interno ao buscar perfis." });
   }
 };
