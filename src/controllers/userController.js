@@ -244,11 +244,36 @@ const buscarPerfis = async (req, res) => {
       whereClause.status_relacionamento = status;
     }
     
-    // Filtro de idade (se você tiver a coluna 'idade' no banco)
+   // 2. FILTROS AVANÇADO
+     // Lógica de idade: calcula a data limite baseada no ano atual
     if (idade_min || idade_max) {
-      whereClause.idade = {};
-      if (idade_min) whereClause.idade[Op.gte] = parseInt(idade_min);
-      if (idade_max) whereClause.idade[Op.lte] = parseInt(idade_max);
+      const hoje = new Date();
+      whereClause.data_nascimento = {};
+
+      if (idade_min) {
+        // Ex: 18 anos -> nascidos antes de hoje em (ano_atual - 18)
+        const dataMinima = new Date(hoje.getFullYear() - idade_min, hoje.getMonth(), hoje.getDate());
+        whereClause.data_nascimento[Op.lte] = dataMinima;
+      }
+
+      if (idade_max) {
+        // Ex: 30 anos -> nascidos depois de hoje em (ano_atual - 31)
+        const dataMaxima = new Date(hoje.getFullYear() - idade_max - 1, hoje.getMonth(), hoje.getDate());
+        whereClause.data_nascimento[Op.gte] = dataMaxima;
+      }
+    }
+
+    // Suporte a múltipla seleção de status (se vier como array ou string única)
+    if (status) {
+      whereClause.status_relacionamento = { 
+        [Op.in]: Array.isArray(status) ? status : [status] 
+      };
+    }
+
+    // Filtro de Interesses/Tags (usando operador overlap do Postgres para arrays)
+    if (req.query.interesses) {
+      const tags = Array.isArray(req.query.interesses) ? req.query.interesses : [req.query.interesses];
+      whereClause.interesses = { [Op.overlap]: tags };
     }
 
     // 3. Busca paginada no PostgreSQL
