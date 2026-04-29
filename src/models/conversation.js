@@ -6,6 +6,8 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // Relacionamento inverso: A conversa pertence a um Match
       this.belongsTo(models.Match, { foreignKey: 'match_id', as: 'match' });
+
+      this.hasMany(models.Message, { foreignKey: 'conversation_id', as: 'messages' });
     }
   }
 
