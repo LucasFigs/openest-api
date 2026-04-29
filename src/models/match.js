@@ -1,4 +1,3 @@
-// models/match.js
 'use strict';
 const { Model } = require('sequelize');
 
@@ -7,7 +6,8 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       this.belongsTo(models.User, { foreignKey: 'user1_id', as: 'user1' });
       this.belongsTo(models.User, { foreignKey: 'user2_id', as: 'user2' });
-    }
+
+    this.hasOne(models.Conversation, { foreignKey: 'match_id', as: 'conversation' });    }
   }
   Match.init({
     id: {
