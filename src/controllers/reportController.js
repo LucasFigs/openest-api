@@ -1,4 +1,5 @@
-const { Report } = require('../models');
+const { Report, User } = require('../models');
+const { Op } = require('sequelize');
 
 exports.createReport = async (req, res) => {
   try {
@@ -38,6 +39,42 @@ exports.createReport = async (req, res) => {
       report_id: report.id
     });
 
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+exports.listReports = async (req, res) => {
+  try {
+    const { status, reported_id, date, page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit;
+
+    // Construção dinâmica dos filtros
+    const whereClause = {};
+    if (status) whereClause.status = status;
+    if (reported_id) whereClause.reported_id = reported_id;
+    if (date) {
+      whereClause.created_at = { [Op.gte]: new Date(date) };
+    }
+
+    const { count, rows } = await Report.findAndCountAll({
+      where: whereClause,
+      include: [{
+        model: User,
+        as: 'ReportedUser', // O alias que definimos no model Report
+        attributes: ['id', 'name', 'foto_url', 'email']
+      }],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['created_at', 'DESC']]
+    });
+
+    return res.status(200).json({
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
+      reports: rows
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
