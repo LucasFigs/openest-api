@@ -40,6 +40,7 @@ module.exports = (sequelize) => {
     tableName: 'Users', // Nome igual ao da migration
     underscored: true,
     paranoid: true, // Soft delete
-  });
+  },
+);
   return User;
 };
