@@ -79,3 +79,45 @@ exports.listReports = async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 };
+
+// Ação: Banir Usuário
+exports.banUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const report = await Report.findByPk(id);
+
+    if (!report) return res.status(404).json({ error: "Denúncia não encontrada." });
+
+    // Marca o usuário como banido
+    await User.update({ is_banned: true }, { where: { id: report.reported_id } });
+
+    // Atualiza a denúncia
+    await report.update({
+      status: 'banned',
+      reviewed_by: req.user.id,
+      reviewed_at: new Date()
+    });
+
+    return res.json({ message: "Usuário banido e denúncia encerrada." });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+// Ação: Ignorar Denúncia
+exports.dismissReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const report = await Report.findByPk(id);
+
+    await report.update({
+      status: 'dismissed',
+      reviewed_by: req.user.id,
+      reviewed_at: new Date()
+    });
+
+    return res.json({ message: "Denúncia ignorada." });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
