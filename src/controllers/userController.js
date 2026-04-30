@@ -57,7 +57,6 @@ const register = async (req, res) => {
   }
 };
 
-// Função para login de usuário
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -69,6 +68,13 @@ const login = async (req, res) => {
       return res.status(401).json({ message: "E-mail ou senha incorretos." });
     }
 
+    // Verifica se o usuário foi banido antes de validar a senha
+    if (user.is_banned) {
+      return res.status(403).json({ 
+        message: "Acesso negado. Sua conta foi banida por violação das nossas diretrizes." 
+      });
+    }
+    
     // 2. Comparar a senha digitada com o hash do banco
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 
@@ -78,7 +84,7 @@ const login = async (req, res) => {
 
     // 3. Se tudo estiver OK, gerar o Token JWT
     const token = jwt.sign(
-      { id: user.id, email: user.email }, // Payload (o que vai dentro do token)
+      { id: user.id, email: user.email, is_admin: user.is_admin }, // Payload (incluindo is_admin para facilitar no front)
       process.env.JWT_SECRET,             // Chave secreta
       { expiresIn: process.env.JWT_EXPIRES_IN } // Tempo de validade
     );
@@ -88,7 +94,8 @@ const login = async (req, res) => {
       user: {
         id: user.id,
         name: user.name,
-        email: user.email
+        email: user.email,
+        is_admin: user.is_admin // Retornar também se é admin
       },
       token
     });

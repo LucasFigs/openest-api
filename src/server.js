@@ -9,6 +9,8 @@ const userRoutes = require("./routes/userRoutes"); // Importa as rotas relaciona
 const healthRoutes = require("./routes/healthRoutes"); // Importa as rotas para verificação de saúde do servidor, útil para monitoramento e deploy
 const interactionRoutes = require("./routes/interactionRoutes"); // Importa as rotas relacionadas às interações, como mensagens e conversas
 const messageRoutes = require('./routes/messageRoutes'); // Importa as rotas relacionadas às mensagens, incluindo o envio de mensagens
+const conversationRoutes = require('./routes/conversationRoutes'); // Importa as rotas relacionadas às conversas, como listar conversas do usuário
+const reportRoutes = require('./routes/reportRoutes'); // Importa as rotas relacionadas às denúncias, permitindo que os usuários denunciem outros perfis
 
 const app = express();
 
@@ -16,6 +18,11 @@ const app = express();
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
+// ROTAS
+app.use('/api', conversationRoutes);
+app.use('/api', messageRoutes);
+app.use('/api', reportRoutes);
 
 // Aplicando Rate Limit
 const limiter = rateLimit({

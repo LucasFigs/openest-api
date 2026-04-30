@@ -33,13 +33,18 @@ module.exports = (sequelize) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false
     },
-    foto_url: DataTypes.STRING
+    foto_url: DataTypes.STRING,
+    is_banned: {
+     type: DataTypes.BOOLEAN,
+     defaultValue: false
+    },   
   }, {
     sequelize,
     modelName: 'User',
     tableName: 'Users', // Nome igual ao da migration
     underscored: true,
     paranoid: true, // Soft delete
-  });
+  }, 
+);
   return User;
 };
