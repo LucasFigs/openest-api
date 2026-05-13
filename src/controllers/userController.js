@@ -238,22 +238,21 @@ const obterPerfil = async (req, res) => {
 const atualizarPerfil = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, birth_date, bio, status_relacionamento, modo_discreto } = req.body;
+    const { name, birth_date, bio, status_relacionamento, modo_discreto, location, age } = req.body;
 
-    // 1. Filtrar apenas campos permitidos (White-list)
     const camposParaAtualizar = {};
     if (name !== undefined) camposParaAtualizar.name = name;
     if (birth_date !== undefined) camposParaAtualizar.birth_date = birth_date;
     if (bio !== undefined) camposParaAtualizar.bio = bio;
     if (status_relacionamento !== undefined) camposParaAtualizar.status_relacionamento = status_relacionamento;
     if (modo_discreto !== undefined) camposParaAtualizar.modo_discreto = modo_discreto;
+    if (location !== undefined) camposParaAtualizar.location = location;  // ← adicionado
+    if (age !== undefined) camposParaAtualizar.age = age;                  // ← adicionado
 
-    // 2. Verificar se há algo para atualizar
     if (Object.keys(camposParaAtualizar).length === 0) {
       return res.status(400).json({ error: "Nenhum campo válido enviado para atualização." });
     }
 
-    // 3. Executar atualização no Sequelize
     const [updated] = await db.User.update(camposParaAtualizar, {
       where: { id: userId }
     });
@@ -262,7 +261,6 @@ const atualizarPerfil = async (req, res) => {
       return res.status(404).json({ error: "Usuário não encontrado." });
     }
 
-    // 4. Buscar e retornar os dados atualizados (exceto senha)
     const userAtualizado = await db.User.findByPk(userId, {
       attributes: { exclude: ['password_hash'] }
     });
