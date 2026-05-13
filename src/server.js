@@ -86,7 +86,27 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 3. Desconexão
+  // 3. Indicador de Digitação (Task #64)
+  
+  // Quando o frontend emite que começou a digitar
+  socket.on("typing_start", ({ conversation_id, user_id }) => {
+    // Envia o estado de "digitando" para os outros na mesma sala
+    socket.to(`chat_${conversation_id}`).emit("user_typing", { 
+      user_id, 
+      is_typing: true 
+    });
+  });
+
+  // Quando o frontend emite que parou (ou após o timeout)
+  socket.on("typing_stop", ({ conversation_id, user_id }) => {
+    // Avisa para remover o "Digitando..." da tela
+    socket.to(`chat_${conversation_id}`).emit("user_typing", { 
+      user_id, 
+      is_typing: false 
+    });
+  });
+
+  // 4. Desconexão
   socket.on("disconnect", () => {
     console.log("🔌 Cliente desconectado");
   });
