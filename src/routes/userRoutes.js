@@ -20,10 +20,11 @@ router.post('/register', userController.register);
 router.post('/login', userController.login);
 router.post('/forgot-password', userController.forgotPassword);
 router.post('/reset-password', userController.resetPassword);
-router.post('/upload-photo', verifyToken, upload.single('image'), userController.uploadPhoto);
+router.post('/upload-photo', authMiddleware, upload.single('image'), userController.uploadPhoto);
 router.get('/perfil', authMiddleware, userController.obterPerfil);
 router.put('/perfil', authMiddleware, userController.atualizarPerfil);
 router.get('/buscar', authMiddleware, userController.buscarPerfis);
+router.delete('/conta', authMiddleware, userController.deleteAccount);
 
 // Rota temporária para testar o upload
 router.post('/upload-test', authMiddleware, uploadCloud.single('image'), (req, res) => {

@@ -121,3 +121,27 @@ exports.dismissReport = async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 };
+
+// Ação: Enviar Aviso ao Usuário (supabase eu acho)
+exports.sendWarning = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body; // O admin envia o texto do aviso
+    const report = await Report.findByPk(id);
+
+    if (!report) return res.status(404).json({ error: "Denúncia não encontrada." });
+
+    // Aqui você implementaria o envio de e-mail ou notificação push
+    console.log(`AVISO ENVIADO para o usuário ${report.reported_id}: ${message}`);
+
+    await report.update({
+      status: 'reviewed',
+      reviewed_by: req.user.id,
+      reviewed_at: new Date()
+    });
+
+    return res.json({ message: "Aviso enviado e denúncia marcada como revisada." });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};

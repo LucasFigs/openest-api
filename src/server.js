@@ -11,6 +11,7 @@ const interactionRoutes = require("./routes/interactionRoutes"); // Importa as r
 const messageRoutes = require('./routes/messageRoutes'); // Importa as rotas relacionadas às mensagens, incluindo o envio de mensagens
 const conversationRoutes = require('./routes/conversationRoutes'); // Importa as rotas relacionadas às conversas, como listar conversas do usuário
 const reportRoutes = require('./routes/reportRoutes'); // Importa as rotas relacionadas às denúncias, permitindo que os usuários denunciem outros perfis
+const adminRoutes = require('./routes/adminRoutes'); // Importa as rotas relacionadas ao painel de administração, incluindo o endpoint de monitoramento
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use(express.json());
 app.use('/api', conversationRoutes);
 app.use('/api', messageRoutes);
 app.use('/api', reportRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Aplicando Rate Limit
 const limiter = rateLimit({
@@ -86,7 +88,27 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 3. Desconexão
+  // 3. Indicador de Digitação (Task #64)
+  
+  // Quando o frontend emite que começou a digitar
+  socket.on("typing_start", ({ conversation_id, user_id }) => {
+    // Envia o estado de "digitando" para os outros na mesma sala
+    socket.to(`chat_${conversation_id}`).emit("user_typing", { 
+      user_id, 
+      is_typing: true 
+    });
+  });
+
+  // Quando o frontend emite que parou (ou após o timeout)
+  socket.on("typing_stop", ({ conversation_id, user_id }) => {
+    // Avisa para remover o "Digitando..." da tela
+    socket.to(`chat_${conversation_id}`).emit("user_typing", { 
+      user_id, 
+      is_typing: false 
+    });
+  });
+
+  // 4. Desconexão
   socket.on("disconnect", () => {
     console.log("🔌 Cliente desconectado");
   });
