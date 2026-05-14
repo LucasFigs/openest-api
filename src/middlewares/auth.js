@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { User } = require('../models'); // Ajuste o caminho se a sua pasta de models for diferente
 
 module.exports = (req, res, next) => {
     // 1. Extrair o token do header Authorization
@@ -22,17 +23,26 @@ module.exports = (req, res, next) => {
     }
 
     // 2. Validar o token com o JWT_SECRET
-    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
         if (err) {
             return res.status(401).json({ error: 'Token inválido ou expirado' });
         }
 
-        // 3. Se válido, anexa os dados no req para as próximas funções usarem
-       req.user = {
-         id: decoded.id,
-         email: decoded.email
-};
+        try {
+            // 3. Busca o utilizador atualizado no banco de dados
+            const user = await User.findByPk(decoded.id);
 
-return next();
+            if (!user) {
+                return res.status(401).json({ error: 'Usuário não encontrado' });
+            }
+
+            // 4. Anexa TODO o utilizador (incluindo o is_admin = true) no req
+            req.user = user;
+
+            return next();
+        } catch (dbError) {
+            console.error("Erro ao buscar usuário no auth.js:", dbError);
+            return res.status(500).json({ error: 'Erro interno na validação' });
+        }
     });
 };

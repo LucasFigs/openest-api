@@ -11,6 +11,7 @@ const interactionRoutes = require("./routes/interactionRoutes"); // Importa as r
 const messageRoutes = require('./routes/messageRoutes'); // Importa as rotas relacionadas às mensagens, incluindo o envio de mensagens
 const conversationRoutes = require('./routes/conversationRoutes'); // Importa as rotas relacionadas às conversas, como listar conversas do usuário
 const reportRoutes = require('./routes/reportRoutes'); // Importa as rotas relacionadas às denúncias, permitindo que os usuários denunciem outros perfis
+const adminRoutes = require('./routes/adminRoutes'); // Importa as rotas relacionadas ao painel de administração, incluindo o endpoint de monitoramento
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use(express.json());
 app.use('/api', conversationRoutes);
 app.use('/api', messageRoutes);
 app.use('/api', reportRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Aplicando Rate Limit
 const limiter = rateLimit({
