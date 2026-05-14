@@ -392,4 +392,40 @@ const buscarPerfis = async (req, res) => {
   }
 };
 
-module.exports = { register, login, forgotPassword, resetPassword, uploadPhoto, buscarPerfis, obterPerfil, atualizarPerfil };
+const deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user.id; 
+    
+    // Corrigido: usamos db.User para acessar o model corretamente
+    const user = await db.User.findByPk(userId); 
+
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+
+    // Gerando um e-mail único para anonimização
+    const emailAnonimizado = `excluido_${Date.now()}_${userId}@openest.com`;
+
+    // Atualiza os dados para anonimizar (LGPD)
+    await user.update({
+      name: 'Usuário Excluído',
+      email: emailAnonimizado,
+      foto_url: null, 
+      bio: null,
+      password_hash: 'deleted', 
+      status_relacionamento: 'individual'
+    });
+
+    // Soft Delete (preenche o deleted_at)
+    await user.destroy();
+
+    return res.status(200).json({ 
+      message: 'Sua conta foi excluída e seus dados anonimizados com sucesso.' 
+    });
+
+  } catch (error) {
+    console.error("Erro ao excluir conta (LGPD):", error);
+    return res.status(500).json({ error: 'Erro interno ao processar a exclusão da conta.' });
+  }
+};
+module.exports = { register, login, forgotPassword, resetPassword, uploadPhoto, buscarPerfis, obterPerfil, atualizarPerfil, deleteAccount };
