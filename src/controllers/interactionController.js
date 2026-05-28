@@ -1,43 +1,50 @@
-const { Interaction, Match } = require('../models');
+const { Interaction, Match, Conversation } = require('../models');
+console.log('🔎 Modelos válidos no Sequelize:', Object.keys(require('../models')));
+const { Op } = require('sequelize'); // Importante para o Op.or
 
-// Função auxiliar para verificar se houve um match
+// ─── Função atualizada com a lógica de conversação ──────────────────────────
 const checkMatch = async (userA, userB) => {
-  // Verifica se o Usuário B já curtiu o Usuário A
   const interactionBack = await Interaction.findOne({
-    where: {
-      from_user_id: userB,
-      to_user_id: userA,
-      type: 'like'
-    }
+    where: { from_user_id: userB, to_user_id: userA, type: 'like' }
   });
 
   if (interactionBack) {
-    // Se sim, cria o registro na tabela Matches
-    const newMatch = await Match.create({
-      user1_id: userA,
-      user2_id: userB
+    const existingMatch = await Match.findOne({
+      where: {
+        [Op.or]: [
+          { user1_id: userA, user2_id: userB },
+          { user1_id: userB, user2_id: userA }
+        ]
+      }
     });
 
-    // TODO: Disparar notificação (Task futura ou log por enquanto)
-    console.log(`🔥 MATCH REAL: ${userA} & ${userB}`);
-    
-    return newMatch;
+   if (!existingMatch) {
+      // 1. Cria o Match
+      const newMatch = await Match.create({ user1_id: userA, user2_id: userB });
+      
+      // 2. Cria a Conversa ligada a esse Match exato (agora usando match_id)
+      await Conversation.create({
+        match_id: newMatch.id // Usando a coluna correta que está no seu modelo!
+      });
+      
+      console.log(`🔥 MATCH REAL & CONVERSA PRONTA: ${userA} & ${userB}`);
+    }
+    return true; 
   }
-
   return null;
 };
 
+// ─── As funções abaixo que você perguntou: ──────────────────────────────────
+
 const curtirPerfil = async (req, res) => {
-  const from_user_id = req.user.id; // ID de quem está logado (via token)
-  const to_user_id = req.params.usuarioId; // ID de quem está sendo curtido
+  const from_user_id = req.user.id;
+  const to_user_id = req.params.usuarioId;
 
   try {
-    // 1. Validar se não está curtindo a si mesmo
     if (from_user_id === to_user_id) {
       return res.status(400).json({ message: "Você não pode curtir a si mesmo." });
     }
 
-    // 2. Validar se já não curtiu antes
     const jaCurtiu = await Interaction.findOne({
       where: { from_user_id, to_user_id, type: 'like' }
     });
@@ -46,12 +53,11 @@ const curtirPerfil = async (req, res) => {
       return res.status(400).json({ message: "Você já curtiu este perfil." });
     }
 
-    // 3. Registrar a interação na tabela Interactions
     await Interaction.create({
       from_user_id,
       to_user_id,
       type: 'like'
-  });
+    });
 
     const matchResult = await checkMatch(from_user_id, to_user_id);
 
@@ -72,12 +78,10 @@ const passarPerfil = async (req, res) => {
   const to_user_id = req.params.usuarioId;
 
   try {
-    // 1. Validar se não está passando em si mesmo
     if (from_user_id === to_user_id) {
       return res.status(400).json({ message: "Você não pode passar a si mesmo." });
     }
 
-    // 2. Registrar a interação do tipo 'pass'
     await Interaction.create({
       from_user_id,
       to_user_id,
