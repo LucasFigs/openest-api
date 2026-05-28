@@ -32,31 +32,39 @@
 
 // module.exports = db;
 
-
 // LOCAL DB
 const Sequelize = require('sequelize');
 const config = require('../config/database');
 
-
 // Pegamos as configs de dentro da chave 'development' que criamos no database.js
 const dbConfig = config.development; 
 
+// 1º PASSO: Criar a conexão com o banco PRIMEIRO
 const sequelize = new Sequelize(
   dbConfig.database, 
   dbConfig.username, 
   dbConfig.password, 
-  dbConfig // Aqui dentro está o 'dialect: postgres' 
+  dbConfig 
 );
 
+// 2º PASSO: Criar a "caixa" vazia
 const db = {};
 
-// Importa o modelo de usuário que criamos, passando a instância do Sequelize para ele. Assim, o modelo pode se registrar corretamente.
+// 3º PASSO: Colocar os modelos dentro da caixa (agora a caixa e a conexão já existem!)
 db.User = require('./user')(sequelize); 
-//mudei so isso aqui
 db.Interaction = require('./interaction')(sequelize, Sequelize);
 db.Match = require('./match')(sequelize, Sequelize);
+db.Conversation = require('./conversation')(sequelize, Sequelize);
+db.Message = require('./message')(sequelize, Sequelize);
 
+// 4º PASSO: Executar as associações (ligar as tabelas umas às outras)
+Object.keys(db).forEach(modelName => {
+  if (db[modelName].associate) {
+    db[modelName].associate(db);
+  }
+});
 
+// 5º PASSO: Finalizar e exportar
 db.sequelize = sequelize;
 db.Sequelize = Sequelize;
 

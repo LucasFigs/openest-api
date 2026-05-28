@@ -12,6 +12,9 @@ const messageRoutes = require('./routes/messageRoutes'); // Importa as rotas rel
 const conversationRoutes = require('./routes/conversationRoutes'); // Importa as rotas relacionadas às conversas, como listar conversas do usuário
 const reportRoutes = require('./routes/reportRoutes'); // Importa as rotas relacionadas às denúncias, permitindo que os usuários denunciem outros perfis
 const adminRoutes = require('./routes/adminRoutes'); // Importa as rotas relacionadas ao painel de administração, incluindo o endpoint de monitoramento
+const swaggerUi = require('swagger-ui-express'); // Biblioteca para servir a interface do Swagger, que é uma ferramenta de documentação de APIs
+const swaggerJsdoc = require('swagger-jsdoc'); // Biblioteca para gerar a especificação do Swagger a partir de comentários JSDoc nas rotas, facilitando a documentação automática da API
+
 
 const app = express();
 
@@ -19,6 +22,43 @@ const app = express();
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
+// 👇 CONFIGURAÇÃO DO SWAGGER 👇
+    const swaggerOptions = {
+      definition: {
+        openapi: '3.0.0',
+        info: {
+          title: 'Openest API',
+          version: '1.0.0',
+          description: 'Documentação das rotas do backend',
+        },
+        servers: [
+          {
+            url: 'http://localhost:3000', 
+          },
+        ],
+        // 🔥 A MÁGICA DO CADEADO ENTRA AQUI:
+        components: {
+          securitySchemes: {
+            bearerAuth: {
+              type: 'http',
+              scheme: 'bearer',
+              bearerFormat: 'JWT',
+            },
+          },
+        },
+        security: [
+          {
+            bearerAuth: [],
+          },
+        ],
+      },
+      apis: ['./src/routes/*.js'], 
+    };
+
+    const swaggerSpec = swaggerJsdoc(swaggerOptions);
+    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));;
+    // 👆 FIM DA CONFIGURAÇÃO DO SWAGGER 👆
 
 // ROTAS
 app.use('/api', conversationRoutes);
@@ -29,7 +69,7 @@ app.use('/api/admin', adminRoutes);
 // Aplicando Rate Limit
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 5000,
   message: { message: "Muitas requisições, tente mais tarde." },
 });
 
