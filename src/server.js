@@ -29,7 +29,7 @@ app.use('/api/admin', adminRoutes);
 // Aplicando Rate Limit
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 5000,
   message: { message: "Muitas requisições, tente mais tarde." },
 });
 
