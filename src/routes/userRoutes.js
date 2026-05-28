@@ -24,6 +24,7 @@ router.post('/upload-photo', authMiddleware, upload.single('image'), userControl
 router.get('/perfil', authMiddleware, userController.obterPerfil);
 router.put('/perfil', authMiddleware, userController.atualizarPerfil);
 router.get('/buscar', authMiddleware, userController.buscarPerfis);
+router.get('/exportar-dados', authMiddleware, userController.exportUserData);
 router.delete('/conta', authMiddleware, userController.deleteAccount);
 
 // Rota temporária para testar o upload

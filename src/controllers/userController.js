@@ -428,4 +428,84 @@ const deleteAccount = async (req, res) => {
     return res.status(500).json({ error: 'Erro interno ao processar a exclusão da conta.' });
   }
 };
-module.exports = { register, login, forgotPassword, resetPassword, uploadPhoto, buscarPerfis, obterPerfil, atualizarPerfil, deleteAccount };
+
+// --- NOVA FUNÇÃO DE EXPORTAÇÃO DE DADOS (LGPD) ---
+const exportUserData = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { Op } = db.Sequelize; // Extraindo o Op diretamente do Sequelize
+
+    // 1. Buscar os dados do perfil (escondendo a senha e campos sensíveis)
+    const user = await db.User.findByPk(userId, {
+      attributes: { exclude: ['password_hash', 'deleted_at'] } 
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+
+    // 2. Carregar os models com fallback dinâmico
+    const Match = db.Match || db.match || db.matchs || null;
+    const Message = db.Message || db.message || null;
+    const Interaction = db.Interaction || db.interaction || db.interacao || null;
+
+    let matches = [];
+    let messages = [];
+    let interactions = [];
+
+    // 3. Buscar os dados relacionados. 
+    // Usamos o .catch(() => []) para que, se houver divergência no nome das colunas, ele não dê erro 500
+    if (Match) {
+      matches = await Match.findAll({ 
+        where: { [Op.or]: [{ user1_id: userId }, { user2_id: userId }] } 
+      }).catch(() => []); 
+    }
+    
+    if (Message) {
+      messages = await Message.findAll({ 
+        where: { [Op.or]: [{ sender_id: userId }, { receiver_id: userId }] } 
+      }).catch(() => []);
+    }
+    
+    // Adaptado para usar from_user_id e to_user_id com base no seu código de buscarPerfis
+    if (Interaction) {
+      interactions = await Interaction.findAll({ 
+        where: { [Op.or]: [{ from_user_id: userId }, { to_user_id: userId }] } 
+      }).catch(() => []);
+    }
+
+    // 4. Montar o pacote de dados exigido pela task
+    const exportData = {
+      perfil: user,
+      matches,
+      mensagens: messages,
+      interacoes: interactions,
+      exportado_em: new Date()
+    };
+
+    // 5. O SEGREDO DO DOWNLOAD: Configurar os Headers
+    res.setHeader('Content-Disposition', `attachment; filename=dados_openest_${userId}.json`);
+    res.setHeader('Content-Type', 'application/json');
+
+    // 6. Enviar o ficheiro JSON formatado 
+    return res.status(200).send(JSON.stringify(exportData, null, 2));
+
+  } catch (error) {
+    console.error("Erro ao exportar dados (LGPD):", error);
+    return res.status(500).json({ error: 'Erro interno ao processar a exportação.' });
+  }
+};
+
+// Não esqueça que o exportUserData foi adicionado aqui no final!
+module.exports = { 
+  register, 
+  login, 
+  forgotPassword, 
+  resetPassword, 
+  uploadPhoto, 
+  buscarPerfis, 
+  obterPerfil, 
+  atualizarPerfil, 
+  deleteAccount,
+  exportUserData 
+};
