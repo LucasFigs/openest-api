@@ -71,6 +71,59 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
+// 🔥 NOVA FUNÇÃO: SALVA A MENSAGEM COM A IMAGEM
+exports.sendImageMessage = async (req, res) => {
+  try {
+    const { conversation_id } = req.body;
+    const sender_id = req.user.id;
+
+    // Se o multer não encontrou a imagem, dá erro
+    if (!req.file) {
+      return res.status(400).json({ error: "Nenhuma imagem foi enviada" });
+    }
+
+    // A URL que o Cloudinary devolveu
+    const imageUrl = req.file.path; 
+
+    const conversation = await Conversation.findByPk(conversation_id);
+    if (!conversation) return res.status(404).json({ message: "Conversa não encontrada" });
+
+    const match = await Match.findByPk(conversation.match_id);
+    if (!match) return res.status(404).json({ message: "Match não encontrado" });
+
+    // Salva a URL da imagem no lugar do texto!
+    const newMessage = await Message.create({
+      conversation_id,
+      sender_id,
+      content: imageUrl 
+    });
+
+    const recipientId = match.user1_id === sender_id ? match.user2_id : match.user1_id;
+    const recipient = await User.findByPk(recipientId);
+
+    let notificationTitle = req.user.name; 
+    let notificationBody = "📷 Nova imagem recebida"; // Alerta bonito no telemóvel
+
+    if (recipient && recipient.modo_discreto) {
+      notificationTitle = "Nova mensagem";
+      notificationBody = "Você recebeu uma nova mensagem";
+    }
+
+    const io = req.app.get('socketio'); 
+    io.to(`chat_${conversation_id}`).emit('new_message', newMessage);
+    io.to(`user_${recipientId}`).emit('notification', {
+      title: notificationTitle,
+      body: notificationBody,
+      conversation_id
+    });
+
+    return res.status(201).json(newMessage);
+  } catch (error) {
+    console.error("Erro ao enviar imagem:", error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+
 exports.getChatMessages = async (req, res) => {
   try {
     const { id } = req.params;
@@ -96,7 +149,6 @@ exports.getChatMessages = async (req, res) => {
   }
 };
 
-// 🔥 A FUNÇÃO NOVA QUE FALTAVA
 exports.deleteMessage = async (req, res) => {
   try {
     const { id } = req.params;
@@ -113,13 +165,8 @@ exports.deleteMessage = async (req, res) => {
 
     const conversationId = message.conversation_id;
 
-    // 🔥 A MÁGICA REAL DO SOFT DELETE:
-    // Atualiza o texto no banco em vez de destruir a linha
     await message.update({ content: "🚫 Mensagem apagada" });
     
-    // ❌ GARANTA QUE NÃO EXISTE NENHUM "await message.destroy();" AQUI!
-
-    // Avisa o Socket para atualizar a tela do match na hora
     const io = req.app.get('socketio');
     io.to(`chat_${conversationId}`).emit('message_deleted', id);
 
