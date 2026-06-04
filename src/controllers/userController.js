@@ -113,19 +113,12 @@ const resetPassword = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UPLOAD DE FOTO — corrigido para suportar Cloudinary (multer-storage-cloudinary)
-// O middleware multer deve estar configurado na rota com o storage do Cloudinary.
-// req.file.path   → URL segura do Cloudinary (gerada automaticamente pelo multer-storage-cloudinary)
-// req.file.secure_url → alternativa dependendo da versão do pacote
-// ─────────────────────────────────────────────────────────────────────────────
 const uploadPhoto = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "Nenhuma imagem enviada." });
     }
 
-    // multer-storage-cloudinary pode colocar a URL em path ou secure_url
     const imageUrl = req.file.path || req.file.secure_url;
 
     if (!imageUrl) {
@@ -166,25 +159,25 @@ const obterPerfil = async (req, res) => {
 const atualizarPerfil = async (req, res) => {
   try {
     const userId = req.user.id;
-    // Todos os campos que existem no model User
-    const { name, birth_date, bio, status_relacionamento, modo_discreto } = req.body;
+    
+    // 🔥 AGORA INCLUÍMOS O foto_url NA DESESTRUTURAÇÃO
+    const { name, birth_date, bio, status_relacionamento, modo_discreto, foto_url } = req.body;
 
     const camposParaAtualizar = {};
     if (name !== undefined) camposParaAtualizar.name = name;
     
-    // ─── SUPER BLINDAGEM DA DATA ──────────────────────────────────────────────
-    // Só atualizamos a coluna birth_date se o valor for uma data real.
-    // Se vier 'Invalid date', nós ignoramos para não quebrar o banco nem apagar a data antiga.
     if (birth_date !== undefined) {
       if (birth_date && birth_date !== 'Invalid date' && birth_date !== 'Invalid Date' && String(birth_date).trim() !== '') {
         camposParaAtualizar.birth_date = birth_date;
       }
     }
-    // ─────────────────────────────────────────────────────────────────────────
 
     if (bio !== undefined) camposParaAtualizar.bio = bio;
     if (status_relacionamento !== undefined) camposParaAtualizar.status_relacionamento = status_relacionamento;
     if (modo_discreto !== undefined) camposParaAtualizar.modo_discreto = modo_discreto;
+    
+    // 🔥 PERMITE ATUALIZAR (OU APAGAR) A FOTO DE PERFIL
+    if (foto_url !== undefined) camposParaAtualizar.foto_url = foto_url;
 
     if (Object.keys(camposParaAtualizar).length === 0) {
       return res.status(400).json({ error: "Nenhum campo válido enviado para atualização." });
@@ -203,12 +196,7 @@ const atualizarPerfil = async (req, res) => {
     return res.status(500).json({ error: "Erro interno ao atualizar perfil." });
   }
 };
-// ─────────────────────────────────────────────────────────────────────────────
-// BUSCAR PERFIS — corrigido:
-//   ✅ birth_date  (nome real da coluna no model/banco)
-//   ✅ Seleção de atributos sem "idade" (coluna não existe — calculamos no JS)
-//   ✅ Filtro de idade usando birth_date corretamente
-// ─────────────────────────────────────────────────────────────────────────────
+
 const buscarPerfis = async (req, res) => {
   try {
     const { Op } = db.Sequelize;
@@ -217,7 +205,6 @@ const buscarPerfis = async (req, res) => {
     const { page = 1, limit = 10, idade_min, idade_max, status } = req.query;
     const offset = (page - 1) * limit;
 
-    // 1. IDs que o usuário já interagiu
     const interagidos = await db.Interaction.findAll({
       where: { from_user_id: userId },
       attributes: ['to_user_id']
@@ -225,46 +212,37 @@ const buscarPerfis = async (req, res) => {
     const idsParaExcluir = interagidos.map(i => i.to_user_id);
     idsParaExcluir.push(userId);
 
-    // 2. Montar filtro base
     let whereClause = {
       id: { [Op.notIn]: idsParaExcluir },
       modo_discreto: false
     };
 
-    // 3. Filtro de idade via birth_date (coluna correta)
     if (idade_min || idade_max) {
       const hoje = new Date();
       whereClause.birth_date = {};
 
       if (idade_min) {
-        // Idade mínima = nascidos ANTES de (hoje - idade_min anos)
         const dataLimiteMax = new Date(hoje.getFullYear() - parseInt(idade_min), hoje.getMonth(), hoje.getDate());
         whereClause.birth_date[Op.lte] = dataLimiteMax;
       }
 
       if (idade_max) {
-        // Idade máxima = nascidos DEPOIS de (hoje - idade_max - 1 anos)
         const dataLimiteMin = new Date(hoje.getFullYear() - parseInt(idade_max) - 1, hoje.getMonth(), hoje.getDate());
         whereClause.birth_date[Op.gte] = dataLimiteMin;
       }
     }
 
-    // 4. Filtro de status de relacionamento
     if (status) {
       whereClause.status_relacionamento = {
         [Op.in]: Array.isArray(status) ? status : [status]
       };
     }
 
-    // 5. Filtro de interesses (array no Postgres)
     if (req.query.interesses) {
       const tags = Array.isArray(req.query.interesses) ? req.query.interesses : [req.query.interesses];
       whereClause.interesses = { [Op.overlap]: tags };
     }
 
-    // 6. Busca paginada
-    // ⚠️  Selecionamos APENAS colunas que existem no banco.
-    //     A "idade" é calculada no JS a partir de birth_date.
     const fetchPerfis = async (where) => db.User.findAndCountAll({
       where,
       limit: parseInt(limit),
@@ -275,7 +253,6 @@ const buscarPerfis = async (req, res) => {
 
     let { count, rows: perfis } = await fetchPerfis(whereClause);
 
-    // 7. Fallback: poucos resultados → relaxar filtros
     let fallback_aplicado = false;
     const THRESHOLD_MINIMO = 5;
 
@@ -292,7 +269,6 @@ const buscarPerfis = async (req, res) => {
       count  = fallback.count;
     }
 
-    // 8. Calcula a idade a partir de birth_date antes de retornar
     const perfisFormatados = perfis.map(u => {
       const dados = u.toJSON();
       let idade = null;
@@ -304,7 +280,7 @@ const buscarPerfis = async (req, res) => {
           (hoje.getMonth() === nascimento.getMonth() && hoje.getDate() >= nascimento.getDate());
         if (!mesPassou) idade--;
       }
-      return { ...dados, idade, birth_date: undefined }; // entrega "idade" ao front, remove birth_date
+      return { ...dados, idade, birth_date: undefined };
     });
 
     return res.status(200).json({
