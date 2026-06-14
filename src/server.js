@@ -14,6 +14,7 @@ const reportRoutes = require('./routes/reportRoutes'); // Importa as rotas relac
 const adminRoutes = require('./routes/adminRoutes'); // Importa as rotas relacionadas ao painel de administração, incluindo o endpoint de monitoramento
 const swaggerUi = require('swagger-ui-express'); // Biblioteca para servir a interface do Swagger, que é uma ferramenta de documentação de APIs
 const swaggerJsdoc = require('swagger-jsdoc'); // Biblioteca para gerar a especificação do Swagger a partir de comentários JSDoc nas rotas, facilitando a documentação automática da API
+const eventRoutes = require('./routes/eventroutes');
 
 
 const app = express();
@@ -22,6 +23,8 @@ const app = express();
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+app.use('/api/events', eventRoutes);
+
 
 // 👇 CONFIGURAÇÃO DO SWAGGER 👇
     const swaggerOptions = {
