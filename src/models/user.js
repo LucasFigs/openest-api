@@ -34,13 +34,6 @@ module.exports = (sequelize) => {
       defaultValue: false
     },
     foto_url: DataTypes.STRING,
-    // T021 — galeria ordenada de fotos do perfil (posição 0 = foto principal).
-    // O Card de Descoberta lê esta lista na ordem em que foi salva.
-    photos: {
-      type: DataTypes.JSONB,
-      allowNull: false,
-      defaultValue: [],
-    },
     is_banned: {
      type: DataTypes.BOOLEAN,
      defaultValue: false

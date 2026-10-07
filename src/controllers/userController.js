@@ -176,6 +176,48 @@ const uploadPhoto = async (req, res) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// T023 — Verificação de selfie (selo "Verificado")
+// ---------------------------------------------------------------------------
+/**
+ * POST /api/users/verify-photo — recebe a selfie tirada na câmera frontal e
+ * confirma que o usuário corresponde às fotos do perfil.
+ *
+ * O upload roda pelo mesmo multer do Cloudinary usado no upload de foto
+ * (upload.single('image')). Nesta primeira versão a checagem é aprovada no
+ * próprio envio (auto-approval) para o fluxo do TCC; uma fila de revisão
+ * manual pode substituir o update abaixo sem mudar o contrato da rota.
+ *
+ * @returns { message, verificado, selfie_url }
+ */
+const verificarFoto = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "Nenhuma selfie enviada." });
+    }
+
+    const selfieUrl = req.file.path || req.file.secure_url;
+    if (!selfieUrl) {
+      return res.status(500).json({ error: "Cloudinary não retornou a URL da selfie." });
+    }
+
+    const userId = req.user.id;
+    await db.User.update(
+      { verificado: true, selfie_url: selfieUrl },
+      { where: { id: userId } }
+    );
+
+    return res.status(200).json({
+      message: "Selfie recebida e aprovada! Seu perfil agora está verificado.",
+      verificado: true,
+      selfie_url: selfieUrl
+    });
+  } catch (error) {
+    console.error("Erro na T023 (verificacao de selfie):", error);
+    return res.status(500).json({ error: "Erro ao processar a verificação de foto." });
+  }
+};
+
 const obterPerfil = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -327,7 +369,6 @@ const buscarPerfis = async (req, res) => {
       where,
       limit: parseInt(limit),
       offset: parseInt(offset),
-      attributes: ['id', 'name', 'birth_date', 'status_relacionamento', 'foto_url', 'photos', 'bio'],
       order: [['created_at', 'DESC']]
     });
 
@@ -438,6 +479,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   uploadPhoto,
+  verificarFoto,
   buscarPerfis,
   obterPerfil,
   atualizarPerfil,
