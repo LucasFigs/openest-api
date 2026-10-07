@@ -3,6 +3,32 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../models');
 
+// T021 — limite da galeria de fotos de perfil (grid de até N no mobile/web).
+const MAX_PROFILE_PHOTOS = 6;
+
+/**
+ * T021 — normaliza a lista ordenada de fotos do perfil.
+ *
+ * Mantém a ordem enviada pelo cliente (posição 0 = foto principal), remove
+ * entradas que não sejam strings vazias/duplicadas e respeita o limite N.
+ * Retorna null quando o valor nem é uma lista (para a API rejeitar com 400).
+ */
+function normalizePhotos(list) {
+  if (!Array.isArray(list)) return null;
+
+  const seen = new Set();
+  const normalized = [];
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const url = item.trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    normalized.push(url);
+    if (normalized.length >= MAX_PROFILE_PHOTOS) break;
+  }
+  return normalized;
+}
+
 const register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -127,14 +153,22 @@ const uploadPhoto = async (req, res) => {
 
     const userId = req.user.id;
 
+    // T021: a foto enviada pelo upload passa a ser a principal (posição 0 da
+    // galeria) e o foto_url acompanha — assim o Card de Descoberta sempre
+    // mostra a primeira foto da ordem gerenciada pelo usuário.
+    const usuario = await db.User.findByPk(userId, { attributes: ['photos'] });
+    const fotosAtuais = normalizePhotos(usuario && usuario.photos) || [];
+    const photos = [imageUrl, ...fotosAtuais.filter((url) => url !== imageUrl)];
+
     await db.User.update(
-      { foto_url: imageUrl },
+      { foto_url: imageUrl, photos },
       { where: { id: userId } }
     );
 
     return res.status(200).json({
       message: "Foto de perfil atualizada com sucesso!",
-      url: imageUrl
+      url: imageUrl,
+      photos
     });
   } catch (error) {
     console.error("Erro no upload:", error);
@@ -161,7 +195,7 @@ const atualizarPerfil = async (req, res) => {
     const userId = req.user.id;
     
     // 🔥 AGORA INCLUÍMOS O foto_url NA DESESTRUTURAÇÃO
-    const { name, birth_date, bio, status_relacionamento, modo_discreto, foto_url } = req.body;
+    const { name, birth_date, bio, status_relacionamento, modo_discreto, foto_url, photos } = req.body;
 
     const camposParaAtualizar = {};
     if (name !== undefined) camposParaAtualizar.name = name;
@@ -175,9 +209,27 @@ const atualizarPerfil = async (req, res) => {
     if (bio !== undefined) camposParaAtualizar.bio = bio;
     if (status_relacionamento !== undefined) camposParaAtualizar.status_relacionamento = status_relacionamento;
     if (modo_discreto !== undefined) camposParaAtualizar.modo_discreto = modo_discreto;
-    
-    // 🔥 PERMITE ATUALIZAR (OU APAGAR) A FOTO DE PERFIL
-    if (foto_url !== undefined) camposParaAtualizar.foto_url = foto_url;
+
+    // T021 — galeria ordenada de fotos: a lista enviada define a ordem exibida
+    // no Card de Descoberta e a posição 0 é a foto principal (foto_url).
+    if (photos !== undefined) {
+      const fotos = normalizePhotos(photos);
+      if (fotos === null) {
+        return res.status(400).json({ error: "photos precisa ser uma lista de URLs de imagem." });
+      }
+      camposParaAtualizar.photos = fotos;
+      camposParaAtualizar.foto_url = fotos[0] || null;
+    } else if (foto_url !== undefined) {
+      // 🔥 PERMITE ATUALIZAR (OU APAGAR) A FOTO DE PERFIL — compatibilidade com
+      // clientes antigos (T020) que só enviam foto_url: a galeria acompanha,
+      // mantendo o invariante foto_url === photos[0].
+      camposParaAtualizar.foto_url = foto_url;
+      const usuario = await db.User.findByPk(userId, { attributes: ['photos'] });
+      const fotosAtuais = normalizePhotos(usuario && usuario.photos) || [];
+      camposParaAtualizar.photos = foto_url
+        ? [foto_url, ...fotosAtuais.filter((url) => url !== foto_url)]
+        : [];
+    }
 
     if (Object.keys(camposParaAtualizar).length === 0) {
       return res.status(400).json({ error: "Nenhum campo válido enviado para atualização." });
@@ -247,7 +299,7 @@ const buscarPerfis = async (req, res) => {
       where,
       limit: parseInt(limit),
       offset: parseInt(offset),
-      attributes: ['id', 'name', 'birth_date', 'status_relacionamento', 'foto_url', 'bio'],
+      attributes: ['id', 'name', 'birth_date', 'status_relacionamento', 'foto_url', 'photos', 'bio'],
       order: [['created_at', 'DESC']]
     });
 
@@ -309,6 +361,7 @@ const deleteAccount = async (req, res) => {
       name: 'Usuário Excluído',
       email: emailAnonimizado,
       foto_url: null,
+      photos: [],
       bio: null,
       password_hash: 'deleted',
       status_relacionamento: 'individual'
