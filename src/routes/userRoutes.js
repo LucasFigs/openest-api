@@ -28,4 +28,8 @@ router.delete('/conta',        authMiddleware, userController.deleteAccount);
 // upload.single('image') processa o arquivo e popula req.file com os dados do Cloudinary
 router.post('/upload-photo',   authMiddleware, upload.single('image'), userController.uploadPhoto);
 
+// ✅ T023 — Verificação de selfie: mesma pilha do upload (auth + multer + Cloudinary).
+// A selfie confirma que o usuário corresponde às fotos do perfil e ativa o selo "Verificado".
+router.post('/verify-photo',   authMiddleware, upload.single('image'), userController.verificarFoto);
+
 module.exports = router;

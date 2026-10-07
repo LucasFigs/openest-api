@@ -34,6 +34,12 @@ module.exports = (sequelize) => {
       defaultValue: false
     },
     foto_url: DataTypes.STRING,
+    // T023 — verificação de selfie (selo "Verificado" no perfil e no card)
+    verificado: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
+    selfie_url: DataTypes.STRING,
     is_banned: {
      type: DataTypes.BOOLEAN,
      defaultValue: false
