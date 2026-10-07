@@ -3,6 +3,32 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../models');
 
+// T021 — limite da galeria de fotos de perfil (grid de até N no mobile/web).
+const MAX_PROFILE_PHOTOS = 6;
+
+/**
+ * T021 — normaliza a lista ordenada de fotos do perfil.
+ *
+ * Mantém a ordem enviada pelo cliente (posição 0 = foto principal), remove
+ * entradas que não sejam strings vazias/duplicadas e respeita o limite N.
+ * Retorna null quando o valor nem é uma lista (para a API rejeitar com 400).
+ */
+function normalizePhotos(list) {
+  if (!Array.isArray(list)) return null;
+
+  const seen = new Set();
+  const normalized = [];
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const url = item.trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    normalized.push(url);
+    if (normalized.length >= MAX_PROFILE_PHOTOS) break;
+  }
+  return normalized;
+}
+
 const register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -127,14 +153,22 @@ const uploadPhoto = async (req, res) => {
 
     const userId = req.user.id;
 
+    // T021: a foto enviada pelo upload passa a ser a principal (posição 0 da
+    // galeria) e o foto_url acompanha — assim o Card de Descoberta sempre
+    // mostra a primeira foto da ordem gerenciada pelo usuário.
+    const usuario = await db.User.findByPk(userId, { attributes: ['photos'] });
+    const fotosAtuais = normalizePhotos(usuario && usuario.photos) || [];
+    const photos = [imageUrl, ...fotosAtuais.filter((url) => url !== imageUrl)];
+
     await db.User.update(
-      { foto_url: imageUrl },
+      { foto_url: imageUrl, photos },
       { where: { id: userId } }
     );
 
     return res.status(200).json({
       message: "Foto de perfil atualizada com sucesso!",
-      url: imageUrl
+      url: imageUrl,
+      photos
     });
   } catch (error) {
     console.error("Erro no upload:", error);
@@ -203,7 +237,7 @@ const atualizarPerfil = async (req, res) => {
     const userId = req.user.id;
     
     // 🔥 AGORA INCLUÍMOS O foto_url NA DESESTRUTURAÇÃO
-    const { name, birth_date, bio, status_relacionamento, modo_discreto, foto_url } = req.body;
+    const { name, birth_date, bio, status_relacionamento, modo_discreto, foto_url, photos } = req.body;
 
     const camposParaAtualizar = {};
     if (name !== undefined) camposParaAtualizar.name = name;
@@ -216,19 +250,6 @@ const atualizarPerfil = async (req, res) => {
 
     if (bio !== undefined) camposParaAtualizar.bio = bio;
     if (status_relacionamento !== undefined) camposParaAtualizar.status_relacionamento = status_relacionamento;
-
-    // T022 — Modo Discreto: aceita apenas booleano (antes qualquer valor era
-    // gravado direto na coluna BOOLEAN). Quem só quer alternar a privacidade
-    // usa o PATCH /perfil dedicado (atualizarModoDiscreto).
-    if (modo_discreto !== undefined) {
-      if (typeof modo_discreto !== 'boolean') {
-        return res.status(400).json({ error: "modo_discreto deve ser true ou false." });
-      }
-      camposParaAtualizar.modo_discreto = modo_discreto;
-    }
-    
-    // 🔥 PERMITE ATUALIZAR (OU APAGAR) A FOTO DE PERFIL
-    if (foto_url !== undefined) camposParaAtualizar.foto_url = foto_url;
 
     if (Object.keys(camposParaAtualizar).length === 0) {
       return res.status(400).json({ error: "Nenhum campo válido enviado para atualização." });
@@ -348,8 +369,6 @@ const buscarPerfis = async (req, res) => {
       where,
       limit: parseInt(limit),
       offset: parseInt(offset),
-      // T023 — verificado alimenta o selo "Verificado" do card no Discovery.
-      attributes: ['id', 'name', 'birth_date', 'status_relacionamento', 'foto_url', 'bio', 'verificado'],
       order: [['created_at', 'DESC']]
     });
 
@@ -411,6 +430,7 @@ const deleteAccount = async (req, res) => {
       name: 'Usuário Excluído',
       email: emailAnonimizado,
       foto_url: null,
+      photos: [],
       bio: null,
       password_hash: 'deleted',
       status_relacionamento: 'individual'
