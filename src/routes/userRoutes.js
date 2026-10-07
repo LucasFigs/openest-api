@@ -18,6 +18,8 @@ router.post('/reset-password', userController.resetPassword);
 // Rotas protegidas (com autenticação)
 router.get( '/perfil',         authMiddleware, userController.obterPerfil);
 router.put( '/perfil',         authMiddleware, userController.atualizarPerfil);
+// ✅ T022 — Modo Discreto: atualização parcial (só a flag de privacidade)
+router.patch('/perfil',        authMiddleware, userController.atualizarModoDiscreto);
 router.get( '/buscar',         authMiddleware, userController.buscarPerfis);
 router.get( '/exportar-dados', authMiddleware, userController.exportUserData);
 router.delete('/conta',        authMiddleware, userController.deleteAccount);

@@ -174,7 +174,16 @@ const atualizarPerfil = async (req, res) => {
 
     if (bio !== undefined) camposParaAtualizar.bio = bio;
     if (status_relacionamento !== undefined) camposParaAtualizar.status_relacionamento = status_relacionamento;
-    if (modo_discreto !== undefined) camposParaAtualizar.modo_discreto = modo_discreto;
+
+    // T022 — Modo Discreto: aceita apenas booleano (antes qualquer valor era
+    // gravado direto na coluna BOOLEAN). Quem só quer alternar a privacidade
+    // usa o PATCH /perfil dedicado (atualizarModoDiscreto).
+    if (modo_discreto !== undefined) {
+      if (typeof modo_discreto !== 'boolean') {
+        return res.status(400).json({ error: "modo_discreto deve ser true ou false." });
+      }
+      camposParaAtualizar.modo_discreto = modo_discreto;
+    }
     
     // 🔥 PERMITE ATUALIZAR (OU APAGAR) A FOTO DE PERFIL
     if (foto_url !== undefined) camposParaAtualizar.foto_url = foto_url;
@@ -194,6 +203,56 @@ const atualizarPerfil = async (req, res) => {
   } catch (error) {
     console.error("Erro na T025:", error);
     return res.status(500).json({ error: "Erro interno ao atualizar perfil." });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// T022 — Modo Discreto (privacidade principal do app)
+// ---------------------------------------------------------------------------
+// Texto de impacto devolvido junto da flag para o app avisar o usuário.
+const IMPACTO_MODO_DISCRETO_ATIVADO =
+  "Seu perfil deixa de aparecer no Discovery para todos os usuários. " +
+  "Matches e conversas ativos continuam funcionando e seu nome fica oculto " +
+  "nas notificações de mensagem.";
+const IMPACTO_MODO_DISCRETO_DESATIVADO =
+  "Seu perfil volta a aparecer no Discovery e seu nome volta a ser exibido " +
+  "nas notificações de mensagem.";
+
+/**
+ * PATCH /api/users/perfil — altera apenas a flag modo_discreto.
+ *
+ * Validação estrita de booleano e retorno com o aviso de impacto, para o
+ * cliente informar o usuário (critério de aceite da T022). A flag já é
+ * respeitada por buscarPerfis (exclui discretos do Discovery) e pelo
+ * messageController (anonimiza notificações de mensagem).
+ */
+const atualizarModoDiscreto = async (req, res) => {
+  try {
+    const { modo_discreto } = req.body;
+
+    if (typeof modo_discreto !== 'boolean') {
+      return res.status(400).json({ error: "modo_discreto deve ser true ou false." });
+    }
+
+    const userId = req.user.id;
+    const [updated] = await db.User.update(
+      { modo_discreto },
+      { where: { id: userId } }
+    );
+    if (!updated) return res.status(404).json({ error: "Usuário não encontrado." });
+
+    return res.status(200).json({
+      message: modo_discreto
+        ? "Modo Discreto ativado com sucesso!"
+        : "Modo Discreto desativado com sucesso!",
+      modo_discreto,
+      impacto: modo_discreto
+        ? IMPACTO_MODO_DISCRETO_ATIVADO
+        : IMPACTO_MODO_DISCRETO_DESATIVADO
+    });
+  } catch (error) {
+    console.error("Erro na T022 (modo_discreto):", error);
+    return res.status(500).json({ error: "Erro interno ao atualizar o Modo Discreto." });
   }
 };
 
@@ -360,6 +419,7 @@ module.exports = {
   buscarPerfis,
   obterPerfil,
   atualizarPerfil,
+  atualizarModoDiscreto,
   deleteAccount,
   exportUserData
 };
