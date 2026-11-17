@@ -56,6 +56,7 @@ db.Interaction = require('./interaction')(sequelize, Sequelize);
 db.Match = require('./match')(sequelize, Sequelize);
 db.Conversation = require('./conversation')(sequelize, Sequelize);
 db.Message = require('./message')(sequelize, Sequelize);
+db.PushToken = require('./pushToken')(sequelize, Sequelize); // T048 — tokens de push do mobile
 
 // 4º PASSO: Executar as associações (ligar as tabelas umas às outras)
 Object.keys(db).forEach(modelName => {

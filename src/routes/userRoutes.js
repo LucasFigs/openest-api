@@ -3,6 +3,7 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const authMiddleware = require('../middlewares/auth');
 const upload = require('../services/uploadService');
+const pushTokenController = require('../controllers/pushTokenController');
 
 // Health check
 router.get('/health', (req, res) => {
@@ -23,6 +24,10 @@ router.patch('/perfil',        authMiddleware, userController.atualizarModoDiscr
 router.get( '/buscar',         authMiddleware, userController.buscarPerfis);
 router.get( '/exportar-dados', authMiddleware, userController.exportUserData);
 router.delete('/conta',        authMiddleware, userController.deleteAccount);
+
+// ✅ T048 — Push Notifications: registra/remove o Expo Push Token do aparelho
+router.post(  '/push-token',   authMiddleware, pushTokenController.register);
+router.delete('/push-token',   authMiddleware, pushTokenController.unregister);
 
 // ✅ Upload de foto — rota única com auth + multer + controller
 // upload.single('image') processa o arquivo e popula req.file com os dados do Cloudinary

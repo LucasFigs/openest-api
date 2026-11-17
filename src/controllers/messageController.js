@@ -13,6 +13,10 @@ if (!Match) { const matchModel = require('../models/match'); Match = matchModel(
 let User = db.User || db.sequelize.models.User;
 if (!User) { const userModel = require('../models/user'); User = userModel(db.sequelize, DataTypes); }
 
+// T048 — avisos em tempo real + push centralizados (REST e socket usam o mesmo fluxo)
+const { notifyNewMessage } = require('../services/notificationService');
+const { getOtherParticipantId } = require('../services/notificationContent');
+
 exports.sendMessage = async (req, res) => {
   try {
     const { conversation_id, content } = req.body;
@@ -23,17 +27,16 @@ exports.sendMessage = async (req, res) => {
     const match = await Match.findByPk(conversation.match_id);
     if (!match) return res.status(404).json({ message: "Match não encontrado" });
 
-    const newMessage = await Message.create({ conversation_id, sender_id, content });
-    const recipientId = match.user1_id === sender_id ? match.user2_id : match.user1_id;
-    const recipient = await User.findByPk(recipientId);
+    // Só quem participa do match pode escrever nesta conversa.
+    const recipientId = getOtherParticipantId(match, sender_id);
+    if (!recipientId) return res.status(403).json({ error: "Você não participa desta conversa" });
 
-    let notificationTitle = req.user.name; 
-    let notificationBody = content;        
-    if (recipient && recipient.modo_discreto) { notificationTitle = "Nova mensagem"; notificationBody = "Você recebeu uma nova mensagem"; }
+    const newMessage = await Message.create({ conversation_id, sender_id, content });
 
     const io = req.app.get('socketio'); 
     io.to(`chat_${conversation_id}`).emit('new_message', newMessage);
-    io.to(`user_${recipientId}`).emit('notification', { title: notificationTitle, body: notificationBody, conversation_id });
+    // Sem await: o push é enviado em segundo plano e nunca derruba a resposta.
+    notifyNewMessage({ io, conversationId: conversation_id, senderId: sender_id, senderName: req.user.name, recipientId, content });
 
     return res.status(201).json(newMessage);
   } catch (error) { return res.status(500).json({ error: error.message }); }
@@ -52,17 +55,14 @@ exports.sendImageMessage = async (req, res) => {
     const match = await Match.findByPk(conversation.match_id);
     if (!match) return res.status(404).json({ message: "Match não encontrado" });
 
-    const newMessage = await Message.create({ conversation_id, sender_id, content: imageUrl });
-    const recipientId = match.user1_id === sender_id ? match.user2_id : match.user1_id;
-    const recipient = await User.findByPk(recipientId);
+    const recipientId = getOtherParticipantId(match, sender_id);
+    if (!recipientId) return res.status(403).json({ error: "Você não participa desta conversa" });
 
-    let notificationTitle = req.user.name; 
-    let notificationBody = "📷 Nova imagem recebida"; 
-    if (recipient && recipient.modo_discreto) { notificationTitle = "Nova mensagem"; notificationBody = "Você recebeu uma nova mensagem"; }
+    const newMessage = await Message.create({ conversation_id, sender_id, content: imageUrl });
 
     const io = req.app.get('socketio'); 
     io.to(`chat_${conversation_id}`).emit('new_message', newMessage);
-    io.to(`user_${recipientId}`).emit('notification', { title: notificationTitle, body: notificationBody, conversation_id });
+    notifyNewMessage({ io, conversationId: conversation_id, senderId: sender_id, senderName: req.user.name, recipientId, content: imageUrl, isImage: true });
 
     return res.status(201).json(newMessage);
   } catch (error) { return res.status(500).json({ error: error.message }); }
