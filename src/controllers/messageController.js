@@ -16,6 +16,54 @@ if (!User) { const userModel = require('../models/user'); User = userModel(db.se
 // T048 — avisos em tempo real + push centralizados (REST e socket usam o mesmo fluxo)
 const { notifyNewMessage } = require('../services/notificationService');
 const { getOtherParticipantId } = require('../services/notificationContent');
+const messageStatus = require('../services/messageStatus');
+
+// Confirma que o usuário logado participa da conversa e devolve o outro id.
+async function resolveParticipants(conversationId, userId) {
+  const conversation = await Conversation.findByPk(conversationId);
+  if (!conversation) return null;
+  const match = await Match.findByPk(conversation.match_id);
+  if (!match) return null;
+  const otherUserId = getOtherParticipantId(match, userId);
+  if (!otherUserId) return null;
+  return { conversation, match, otherUserId };
+}
+
+// POST /api/conversas/:id/entregue — 2 checks cinzas.
+exports.marcarComoEntregue = async (req, res) => {
+  try {
+    const conversationId = req.params.id;
+    const access = await resolveParticipants(conversationId, req.user.id);
+    if (!access) return res.status(404).json({ error: 'Conversa não encontrada' });
+
+    const io = req.app.get('socketio');
+    const result = await messageStatus.markDelivered({
+      db, io, conversationId, recipientId: req.user.id,
+    });
+    return res.json({ success: true, status: 'delivered', updated: result.updatedIds.length });
+  } catch (error) { return res.status(500).json({ error: error.message }); }
+};
+
+// POST /api/conversas/:id/ler — 2 checks AZUIS, exceto se qualquer um dos
+// dois participantes estiver com o Modo Discreto ligado (aí para em entregue).
+exports.marcarComoLida = async (req, res) => {
+  try {
+    const conversationId = req.params.id;
+    const access = await resolveParticipants(conversationId, req.user.id);
+    if (!access) return res.status(404).json({ error: 'Conversa não encontrada' });
+
+    const io = req.app.get('socketio');
+    const result = await messageStatus.markRead({
+      db, io, conversationId, readerId: req.user.id, otherUserId: access.otherUserId,
+    });
+    return res.json({
+      success: true,
+      status: result.allowRead ? 'read' : 'delivered',
+      updated: result.updatedIds.length,
+      read_receipts_blocked: !result.allowRead,
+    });
+  } catch (error) { return res.status(500).json({ error: error.message }); }
+};
 
 exports.sendMessage = async (req, res) => {
   try {
