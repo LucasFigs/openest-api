@@ -36,7 +36,7 @@ exports.sendMessage = async (req, res) => {
     const io = req.app.get('socketio'); 
     io.to(`chat_${conversation_id}`).emit('new_message', newMessage);
     // Sem await: o push é enviado em segundo plano e nunca derruba a resposta.
-    notifyNewMessage({ io, conversationId: conversation_id, senderId: sender_id, senderName: req.user.name, recipientId, content });
+    notifyNewMessage({ io, conversationId: conversation_id, senderId: sender_id, senderName: req.user.name, senderAvatar: req.user.foto_url, recipientId, content });
 
     return res.status(201).json(newMessage);
   } catch (error) { return res.status(500).json({ error: error.message }); }
@@ -62,7 +62,7 @@ exports.sendImageMessage = async (req, res) => {
 
     const io = req.app.get('socketio'); 
     io.to(`chat_${conversation_id}`).emit('new_message', newMessage);
-    notifyNewMessage({ io, conversationId: conversation_id, senderId: sender_id, senderName: req.user.name, recipientId, content: imageUrl, isImage: true });
+    notifyNewMessage({ io, conversationId: conversation_id, senderId: sender_id, senderName: req.user.name, senderAvatar: req.user.foto_url, recipientId, content: imageUrl, isImage: true });
 
     return res.status(201).json(newMessage);
   } catch (error) { return res.status(500).json({ error: error.message }); }

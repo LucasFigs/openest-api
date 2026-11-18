@@ -44,13 +44,58 @@ function getOtherParticipantId(match, userId) {
   return null;
 }
 
+// Só expõe uma URL de foto se for de verdade (Cloudinary/http). Evita mandar
+// caminho local ou lixo que o cliente não conseguiria carregar.
+function safeAvatar(url) {
+  return typeof url === 'string' && /^https?:\/\//i.test(url.trim()) ? url.trim() : null;
+}
+
+// T048/Front-1 — payload do evento `notification` (socket) de NOVA MENSAGEM,
+// usado pelo banner estilo Instagram no web e no mobile. Inclui nome, foto
+// (Cloudinary) e prévia da mensagem. Modo Discreto do destinatário esconde
+// nome, foto e texto (vira aviso genérico).
+function buildRealtimeMessagePayload({
+  conversationId, senderId, senderName, senderAvatar, content, isImage = false, recipientDiscreet = false,
+}) {
+  const { title, body } = buildMessageNotification({ senderName, recipientDiscreet, content, isImage });
+  const preview = isImage || looksLikeImageUrl(content) ? '📷 Nova imagem' : truncate(content);
+  return {
+    type: 'message',
+    conversation_id: conversationId,
+    sender_id: senderId,
+    sender_name: recipientDiscreet ? null : (senderName || null),
+    sender_avatar: recipientDiscreet ? null : safeAvatar(senderAvatar),
+    content: recipientDiscreet ? null : (preview || null),
+    title, // compat. com a notificação nativa
+    body,
+  };
+}
+
+// Front-1 — payload do evento `new_match` (socket) para o banner. `user_id` é
+// o OUTRO usuário. Esconde nome/foto se o outro usuário está em Modo Discreto.
+function buildRealtimeMatchPayload({
+  matchId, conversationId, otherUserId, otherUserName, otherUserAvatar, otherDiscreet = false,
+}) {
+  return {
+    type: 'match',
+    match_id: matchId,
+    conversation_id: conversationId,
+    user_id: otherUserId,
+    other_user_name: otherDiscreet ? null : (otherUserName || null),
+    other_user_avatar: otherDiscreet ? null : safeAvatar(otherUserAvatar),
+  };
+}
+
 module.exports = {
   DISCREET_MESSAGE,
   DISCREET_MATCH,
   buildMessageNotification,
   buildMatchNotification,
   buildNotificationData,
+  buildRealtimeMessagePayload,
+  buildRealtimeMatchPayload,
   getOtherParticipantId,
   looksLikeImageUrl,
+  safeAvatar,
   truncate,
 };

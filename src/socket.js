@@ -106,12 +106,13 @@ function setupSocket(io, deps = {}) {
 
     async function notifyRecipient(senderId, conversationId, recipientId, content) {
       try {
-        const sender = await db.User.findByPk(senderId, { attributes: ['name'] });
+        const sender = await db.User.findByPk(senderId, { attributes: ['name', 'foto_url'] });
         await notifications.notifyNewMessage({
           io,
           conversationId,
           senderId,
           senderName: sender ? sender.name : null,
+          senderAvatar: sender ? sender.foto_url : null,
           recipientId,
           content,
         });
