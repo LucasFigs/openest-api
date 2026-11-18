@@ -195,10 +195,17 @@ const atualizarPerfil = async (req, res) => {
     const userId = req.user.id;
     
     // 🔥 AGORA INCLUÍMOS O foto_url NA DESESTRUTURAÇÃO
-    const { name, birth_date, bio, status_relacionamento, modo_discreto, foto_url, photos } = req.body;
+    const { name, birth_date, bio, status_relacionamento, modo_discreto, foto_url, photos,
+      gender, username, language, education, cityNeighborhood } = req.body;
 
     const camposParaAtualizar = {};
     if (name !== undefined) camposParaAtualizar.name = name;
+    // Campos de perfil adicionais (mobile). Só atualiza o que veio no corpo.
+    if (gender !== undefined) camposParaAtualizar.gender = gender;
+    if (username !== undefined) camposParaAtualizar.username = username;
+    if (language !== undefined) camposParaAtualizar.language = language;
+    if (education !== undefined) camposParaAtualizar.education = education;
+    if (cityNeighborhood !== undefined) camposParaAtualizar.cityNeighborhood = cityNeighborhood;
     
     if (birth_date !== undefined) {
       if (birth_date && birth_date !== 'Invalid date' && birth_date !== 'Invalid Date' && String(birth_date).trim() !== '') {

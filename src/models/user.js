@@ -25,6 +25,13 @@ module.exports = (sequelize) => {
     birth_date: DataTypes.DATEONLY,
     bio: DataTypes.TEXT,
     status_relacionamento: DataTypes.STRING,
+    // Campos de perfil editáveis no mobile (underscored → colunas snake_case:
+    // gender, username, language, education, city_neighborhood).
+    gender: DataTypes.STRING,
+    username: DataTypes.STRING,
+    language: DataTypes.STRING,
+    education: DataTypes.STRING,
+    cityNeighborhood: DataTypes.STRING,
     modo_discreto: {
       type: DataTypes.BOOLEAN,
       defaultValue: false
