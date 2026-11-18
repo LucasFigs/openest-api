@@ -2,7 +2,8 @@ const express = require("express"); // Framework para criar o servidor HTTP
 const cors = require("cors"); // Middleware para habilitar CORS (Cross-Origin Resource Sharing)
 const helmet = require("helmet"); // Middleware para segurança HTTP, adiciona cabeçalhos de segurança
 const rateLimit = require("express-rate-limit"); // Middleware para limitar o número de requisições, prevenindo ataques de força bruta
-const http = require("http"); // Módulo nativo do Node.js para criar um servidor HTTP, necessário para integrar com Socket.IO
+const http = require("http");
+const os = require("os"); // lista os IPs da rede local no log de inicialização // Módulo nativo do Node.js para criar um servidor HTTP, necessário para integrar com Socket.IO
 const { Server } = require("socket.io"); // Biblioteca para WebSockets, permitindo comunicação em tempo real entre cliente e servidor
 const db = require("./models"); // Importa o modelo do banco de dados, incluindo a conexão e os modelos definidos
 const userRoutes = require("./routes/userRoutes"); // Importa as rotas relacionadas aos usuários, como registro e login
@@ -99,7 +100,19 @@ app.use("/api", messageRoutes);
 // Autenticação + eventos do Socket.IO (T045/T048) — ver src/socket.js
 setupSocket(io);
 
-const PORT = 3000;
+// Porta e host: 0.0.0.0 aceita conexões da rede local (celular Android no
+// mesmo Wi-Fi), não só do próprio notebook.
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || "0.0.0.0";
+
+// Endereços IPv4 da máquina na rede (ex.: 192.168.1.4) — é o que vai no
+// EXPO_PUBLIC_API_URL do openest-mobile.
+function getLanAddresses() {
+  return Object.values(os.networkInterfaces())
+    .flat()
+    .filter((iface) => iface && iface.family === "IPv4" && !iface.internal)
+    .map((iface) => iface.address);
+}
 
 // Sincronização e Início do Servidor
 db.sequelize
@@ -111,10 +124,11 @@ db.sequelize
   .then(() => {
     console.log("✅ Tabelas sincronizadas: OK");
     // 'server.listen' em vez de 'app.listen'
-    server.listen(PORT, () => {
-      console.log(
-        `🚀 Openest API com WebSockets rodando em http://localhost:${PORT}`,
-      );
+    server.listen(PORT, HOST, () => {
+      console.log(`🚀 Openest API com WebSockets rodando em http://localhost:${PORT}`);
+      getLanAddresses().forEach((ip) => {
+        console.log(`📱 Na rede local (mobile): http://${ip}:${PORT}`);
+      });
     });
   })
   .catch((err) => {
