@@ -1,6 +1,7 @@
 const db = require('../models');
 const { Match, User, Conversation } = db;
 const { Op } = require('sequelize');
+const { resolverOutroParticipante, mesclarEncontros } = require('../utils/eventos');
 
 const meusEncontros = async (req, res) => {
   try {
@@ -33,15 +34,15 @@ const meusEncontros = async (req, res) => {
         data_encontro: match.created_at, local: 'A combinar via chat', matchId: conversa?.id || null,
         matchName: outroUser?.name || 'Usuário', fotos: outroUser?.foto_url ? [outroUser.foto_url] : [],
         bio: outroUser?.bio || '', tipo: 'match',
+        otherUserId: outroUserId ? String(outroUserId) : null, // chave de deduplicação
       };
     }));
 
     let eventosAgendados = [];
     try {
       let schedQuery = `
-        SELECT se.*, u.name as match_name, u.foto_url
+        SELECT se.*
         FROM scheduled_events se
-        LEFT JOIN "Users" u ON u.id = se.other_user_id
         WHERE (se.created_by = :userId OR se.other_user_id = :userId)
       `;
       const replacements = { userId };
@@ -55,22 +56,30 @@ const meusEncontros = async (req, res) => {
 
       schedQuery += ` ORDER BY se.scheduled_at ASC`;
 
-      // 🔥 CORREÇÃO: Pega todos os eventos do array, e não apenas o primeiro!
       const rows = await db.sequelize.query(schedQuery, {
         replacements,
         type: db.sequelize.QueryTypes.SELECT
       });
 
-      const lista = rows || [];
-      eventosAgendados = lista.map(e => ({
-        id: `sched-${e.id}`, titulo: e.titulo || `Encontro com ${e.match_name}`,
-        data_encontro: e.scheduled_at, local: e.local || 'A combinar', matchId: e.conversation_id || null,
-        matchName: e.match_name || 'Usuário', fotos: e.foto_url ? [e.foto_url] : [],
-        bio: '', tipo: 'agendado', nota: e.nota || '',
+      eventosAgendados = await Promise.all((rows || []).map(async (e) => {
+        // 🔑 Resolve SEMPRE o OUTRO participante (nunca o próprio usuário logado):
+        // o criador do convite vê o convidado; o convidado vê o criador.
+        const outroUserId = resolverOutroParticipante(e, userId);
+        const outroUser = await User.findByPk(outroUserId, { attributes: ['id', 'name', 'foto_url', 'bio'] });
+        return {
+          id: `sched-${e.id}`, titulo: e.titulo || `Encontro com ${outroUser?.name || 'Usuário'}`,
+          data_encontro: e.scheduled_at, local: e.local || 'A combinar', matchId: e.conversation_id || null,
+          matchName: outroUser?.name || 'Usuário', fotos: outroUser?.foto_url ? [outroUser.foto_url] : [],
+          bio: outroUser?.bio || '', tipo: 'agendado', nota: e.nota || '',
+          otherUserId: outroUserId ? String(outroUserId) : null,
+        };
       }));
     } catch (_) {}
 
-    return res.status(200).json([...eventosDeMatch, ...eventosAgendados]);
+    // 🔒 Deduplicação por par de usuários: cada pessoa aparece UMA única vez.
+    // Um encontro AGENDADO substitui o card "A combinar" (match) do mesmo par.
+    const resultado = mesclarEncontros(eventosDeMatch, eventosAgendados);
+    return res.status(200).json(resultado);
   } catch (error) { return res.status(500).json({ error: 'Erro interno ao buscar eventos.' }); }
 };
 
@@ -87,6 +96,20 @@ const criarEncontro = async (req, res) => {
         local VARCHAR(255), nota TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
+
+    // 🔒 Trava anti-duplicação: um par de usuários tem no máximo UM encontro
+    // agendado ativo. Antes de inserir, remove qualquer agendamento anterior
+    // entre as mesmas duas pessoas (em qualquer direção) — isso evita cards
+    // duplicados caso o convite seja aceito/reenviado mais de uma vez.
+    await db.sequelize.query(
+      `DELETE FROM scheduled_events
+        WHERE (created_by = :userId AND other_user_id = :other_user_id)
+           OR (created_by = :other_user_id AND other_user_id = :userId)`,
+      {
+        replacements: { userId, other_user_id },
+        type: db.sequelize.QueryTypes.DELETE,
+      }
+    );
 
     const [result] = await db.sequelize.query(
       `INSERT INTO scheduled_events (created_by, other_user_id, conversation_id, titulo, scheduled_at, local, nota)
