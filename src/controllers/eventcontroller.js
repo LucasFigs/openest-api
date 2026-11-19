@@ -129,40 +129,110 @@ const criarEncontro = async (req, res) => {
   } catch (error) { return res.status(500).json({ error: 'Erro interno ao criar evento.' }); }
 };
 
-// 🔥 FUNÇÃO CORRIGIDA: Agora identifica se é um Match ou um Agendamento e apaga do lugar certo!
+// "Desistir" de um encontro.
+//
+// A tela de Encontros mostra DOIS tipos de card para a mesma pessoa:
+//   • "Agendado"   → linha em scheduled_events
+//   • "A combinar" → só o Match, sem evento marcado
+// Desistir precisa encerrar o VÍNCULO inteiro (evento + match). Se apagasse
+// só o evento, o card voltava no refresh como "A combinar"; e se o card era
+// "A combinar", não havia evento nenhum para apagar.
+//
+// Aceita o id em qualquer formato: 'sched-<n>', 'match-<uuid>', ou os ids
+// crus ('3' / '<uuid>') que o mobile enviava sem o prefixo — antes isso caía
+// fora dos dois `if` e a rota respondia 200 sem apagar nada (falha silenciosa).
+async function resolverVinculo(rawId, userId, body = {}) {
+  const id = String(rawId == null ? '' : rawId).trim();
+  const semPrefixo = id.replace(/^(sched|match)-/, '');
+  const pedeMatch = id.startsWith('match-');
+  const pedeSched = id.startsWith('sched-') || (!pedeMatch && /^\d+$/.test(semPrefixo));
+
+  // 1) Encontro agendado → descobre o par pelo próprio evento.
+  if (pedeSched && semPrefixo) {
+    const eventId = parseInt(semPrefixo, 10);
+    if (Number.isInteger(eventId)) {
+      const rows = await db.sequelize.query(
+        `SELECT created_by, other_user_id FROM scheduled_events
+          WHERE id = :eventId AND (created_by = :userId OR other_user_id = :userId)`,
+        { replacements: { eventId, userId }, type: db.sequelize.QueryTypes.SELECT }
+      );
+      if (rows && rows.length) {
+        const ev = rows[0];
+        const otherUserId = String(ev.created_by) === String(userId) ? ev.other_user_id : ev.created_by;
+        return { otherUserId };
+      }
+    }
+  }
+
+  // 2) Match → descobre o par pelo match.
+  if (!pedeSched && semPrefixo) {
+    const match = await Match.findOne({
+      where: {
+        id: semPrefixo,
+        [Op.or]: [{ user1_id: userId }, { user2_id: userId }],
+      },
+    });
+    if (match) {
+      const otherUserId = String(match.user1_id) === String(userId) ? match.user2_id : match.user1_id;
+      return { otherUserId };
+    }
+  }
+
+  // 3) Último recurso: o cliente pode mandar com quem é o encontro.
+  const hint = body.other_user_id || body.otherUserId;
+  if (hint) return { otherUserId: hint };
+
+  return null;
+}
+
 const cancelarEvento = async (req, res) => {
   try {
-    const { id } = req.params;
     const userId = req.user.id;
-    
-    if (id.startsWith('sched-')) {
-      // 1. Se for um encontro marcado no chat (id começa com sched-)
-      const eventId = parseInt(id.replace('sched-', ''), 10);
-      
-      await db.sequelize.query(
-        `DELETE FROM scheduled_events WHERE id = :eventId AND (created_by = :userId OR other_user_id = :userId)`,
-        { 
-          replacements: { eventId, userId },
-          type: db.sequelize.QueryTypes.DELETE 
-        }
-      );
-    } else if (id.startsWith('match-')) {
-      // 2. Se for um match automático (id começa com match-)
-      const matchId = id.replace('match-', '');
-      
-      // Apaga o match permanentemente da tabela de Matches
-      await Match.destroy({
-        where: {
-          id: matchId,
-          [Op.or]: [{ user1_id: userId }, { user2_id: userId }]
-        }
-      });
+    const vinculo = await resolverVinculo(req.params.id, userId, req.body || {});
+    if (!vinculo || !vinculo.otherUserId) {
+      return res.status(404).json({ error: 'Encontro não encontrado.' });
+    }
+    const { otherUserId } = vinculo;
+
+    // 1) Remove TODOS os agendamentos entre os dois (qualquer direção).
+    await db.sequelize.query(
+      `DELETE FROM scheduled_events
+        WHERE (created_by = :userId AND other_user_id = :otherUserId)
+           OR (created_by = :otherUserId AND other_user_id = :userId)`,
+      { replacements: { userId, otherUserId }, type: db.sequelize.QueryTypes.DELETE }
+    );
+
+    // 2) Desfaz o match — sem isso o card volta como "A combinar" no refresh.
+    const matchesRemovidos = await Match.destroy({
+      where: {
+        [Op.or]: [
+          { user1_id: userId, user2_id: otherUserId },
+          { user1_id: otherUserId, user2_id: userId },
+        ],
+      },
+    });
+
+    // 3) Avisa os dois lados em tempo real (se o outro estiver com a tela aberta).
+    try {
+      const io = req.app.get('socketio');
+      if (io) {
+        const payload = { by: userId, other_user_id: otherUserId };
+        io.to(`user_${userId}`).emit('encontro_cancelado', payload);
+        io.to(`user_${otherUserId}`).emit('encontro_cancelado', { by: userId, other_user_id: userId });
+      }
+    } catch (socketError) {
+      console.error('Erro ao emitir encontro_cancelado:', socketError.message);
     }
 
-    return res.status(200).json({ success: true, message: "Removido permanentemente!" });
-  } catch (error) { 
-    console.error("Erro ao cancelar:", error);
-    return res.status(500).json({ error: 'Erro ao cancelar evento.' }); 
+    return res.status(200).json({
+      success: true,
+      message: 'Encontro removido permanentemente!',
+      other_user_id: otherUserId,
+      matchesRemovidos,
+    });
+  } catch (error) {
+    console.error('Erro ao cancelar:', error);
+    return res.status(500).json({ error: 'Erro ao cancelar evento.' });
   }
 };
 
