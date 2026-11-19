@@ -19,6 +19,7 @@
 //     new_match ({ match_id, conversation_id, user_id })                sala `user_<id>`
 const jwt = require('jsonwebtoken');
 const messageStatus = require('./services/messageStatus');
+const { userRoom, chatRoom } = require('./utils/rooms');
 
 function defaultVerifyToken(token) {
   return new Promise((resolve, reject) => {
@@ -40,7 +41,7 @@ function setupSocket(io, deps = {}) {
   const isUserOnline = (userId) => {
     try {
       const room = io.sockets && io.sockets.adapter && io.sockets.adapter.rooms
-        ? io.sockets.adapter.rooms.get(`user_${userId}`)
+        ? io.sockets.adapter.rooms.get(userRoom(userId))
         : null;
       return !!(room && room.size > 0);
     } catch (_) {
@@ -58,7 +59,7 @@ function setupSocket(io, deps = {}) {
       for (const s of sockets.values()) {
         if (s && s.user && String(s.user.id) === String(userId)
             && s.rooms && typeof s.rooms.has === 'function'
-            && s.rooms.has(`chat_${conversationId}`)) {
+            && s.rooms.has(chatRoom(conversationId))) {
           return true;
         }
       }
@@ -87,9 +88,21 @@ function setupSocket(io, deps = {}) {
   io.on('connection', (socket) => {
     logger.log('📡 Novo cliente conectado ao WebSocket:', socket.id);
 
-    // Sala pessoal: recebe `notification` (nova mensagem) e `new_match` (T048)
-    // mesmo sem estar com a conversa aberta.
-    socket.join(`user_${socket.user.id}`);
+    // Sala pessoal e PERSISTENTE: o socket entra nela ao autenticar e em toda
+    // reconexão. Por ela chegam `notification`, `new_match` e a atualização
+    // dos checks das mensagens que ESTE usuário enviou — sem depender de ter
+    // alguma conversa aberta.
+    socket.join(userRoom(socket.user.id));
+
+    // RESYNC: ele acabou de ficar online, então tudo que chegou para ele
+    // enquanto estava fora vira `delivered` e cada remetente é avisado na
+    // hora. É o que destrava os checks sem reiniciar o servidor nem dar F5.
+    try {
+      Promise.resolve(status.resyncDelivered({ db, io, userId: socket.user.id }))
+        .catch((error) => logger.error('❌ Erro no resync de entregas:', error));
+    } catch (error) {
+      logger.error('❌ Erro no resync de entregas:', error);
+    }
 
     // 1. Entrar na sala da conversa — só quem participa do match.
     socket.on('join_conversation', async (conversationId, ack) => {
@@ -97,7 +110,7 @@ function setupSocket(io, deps = {}) {
       try {
         const access = await notifications.getConversationAccess(conversationId, socket.user.id);
         if (!access) return reply({ ok: false, error: 'Conversa não encontrada' });
-        socket.join(`chat_${conversationId}`);
+        socket.join(chatRoom(conversationId));
         logger.log(`💬 Usuário entrou no chat: ${conversationId}`);
         // Entrou na conversa ⇒ o que ele recebeu foi lido (o serviço aplica a
         // trava do Modo Discreto e para em `delivered` quando for o caso).
@@ -112,7 +125,7 @@ function setupSocket(io, deps = {}) {
     });
 
     socket.on('leave_conversation', (conversationId) => {
-      socket.leave(`chat_${conversationId}`);
+      socket.leave(chatRoom(conversationId));
     });
 
     // 2. Enviar mensagem (Task #27 / T045). Responde via ack com a mensagem
@@ -136,7 +149,7 @@ function setupSocket(io, deps = {}) {
           status: status.MESSAGE_STATUS.SENT, // 1 check cinza
         });
 
-        io.to(`chat_${conversationId}`).emit('new_message', newMessage);
+        io.to(chatRoom(conversationId)).emit('new_message', newMessage);
         reply({ ok: true, message: newMessage });
 
         // Destinatário com a conversa ABERTA ⇒ já foi LIDA (2 checks azuis,
@@ -204,7 +217,27 @@ function setupSocket(io, deps = {}) {
       }
     });
 
-    socket.on('mark_read', async (data, ack) => {
+    // O cliente confirma que RECEBEU a mensagem (disparado no `new_message`,
+    // mesmo que ele esteja em outra tela/aba). Complementa a checagem de
+    // presença feita no envio.
+    socket.on('message_delivered_ack', async (data, ack) => {
+      const reply = toAck(ack);
+      const conversationId = data && data.conversation_id;
+      if (!conversationId) return reply({ ok: false, error: 'Conversa inválida' });
+      try {
+        const access = await notifications.getConversationAccess(conversationId, socket.user.id);
+        if (!access) return reply({ ok: false, error: 'Conversa não encontrada' });
+        const result = await status.markDelivered({
+          db, io, conversationId, recipientId: socket.user.id,
+        });
+        return reply({ ok: true, updated: result.updatedIds.length });
+      } catch (error) {
+        logger.error('❌ Erro no ack de entrega:', error);
+        return reply({ ok: false, error: 'Erro ao confirmar entrega' });
+      }
+    });
+
+    const handleMarkRead = async (data, ack) => {
       const reply = toAck(ack);
       const conversationId = data && data.conversation_id;
       if (!conversationId) return reply({ ok: false, error: 'Conversa inválida' });
@@ -219,7 +252,12 @@ function setupSocket(io, deps = {}) {
         logger.error('❌ Erro ao marcar lido:', error);
         return reply({ ok: false, error: 'Erro ao marcar lido' });
       }
-    });
+    };
+
+    // Mesmo handler nos dois nomes: `mark_messages_read` é o usado pelos
+    // clientes novos, `mark_read` fica para os que já estão publicados.
+    socket.on('mark_read', handleMarkRead);
+    socket.on('mark_messages_read', handleMarkRead);
 
     // 4. Indicador de digitação (Task #64 / T046). O `user_id` repassado vem
     // do JWT (não do payload), e só quem está na sala da conversa avisa.
