@@ -48,6 +48,26 @@ function setupSocket(io, deps = {}) {
     }
   };
 
+  // O usuário está com ESTA conversa aberta se algum socket dele está na sala
+  // `chat_<id>`. Deixa o SERVIDOR decidir entre entregue e lido, em vez de
+  // depender do cliente lembrar de emitir `mark_read`.
+  const isUserInConversation = (userId, conversationId) => {
+    try {
+      const sockets = io.sockets && io.sockets.sockets;
+      if (!sockets || typeof sockets.values !== 'function') return false;
+      for (const s of sockets.values()) {
+        if (s && s.user && String(s.user.id) === String(userId)
+            && s.rooms && typeof s.rooms.has === 'function'
+            && s.rooms.has(`chat_${conversationId}`)) {
+          return true;
+        }
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  };
+
   // Autenticação: o cliente manda o JWT em `auth.token` e o servidor VALIDA a
   // assinatura antes de aceitar a conexão. O id do usuário passa a vir do
   // token — nunca do payload enviado pelo cliente.
@@ -79,9 +99,11 @@ function setupSocket(io, deps = {}) {
         if (!access) return reply({ ok: false, error: 'Conversa não encontrada' });
         socket.join(`chat_${conversationId}`);
         logger.log(`💬 Usuário entrou no chat: ${conversationId}`);
-        // Entrou na conversa ⇒ o que ele recebeu está, no mínimo, entregue.
-        status.markDelivered({ db, io, conversationId, recipientId: socket.user.id })
-          .catch((error) => logger.error('❌ Erro ao marcar entregues:', error));
+        // Entrou na conversa ⇒ o que ele recebeu foi lido (o serviço aplica a
+        // trava do Modo Discreto e para em `delivered` quando for o caso).
+        status.markRead({
+          db, io, conversationId, readerId: socket.user.id, otherUserId: access.otherUserId,
+        }).catch((error) => logger.error('❌ Erro ao marcar lidas:', error));
         return reply({ ok: true });
       } catch (error) {
         logger.error('❌ Erro ao entrar na conversa:', error);
@@ -117,11 +139,24 @@ function setupSocket(io, deps = {}) {
         io.to(`chat_${conversationId}`).emit('new_message', newMessage);
         reply({ ok: true, message: newMessage });
 
-        // Destinatário conectado ⇒ já conta como ENTREGUE (2 checks cinzas).
-        if (isUserOnline(access.otherUserId)) {
+        // Destinatário com a conversa ABERTA ⇒ já foi LIDA (2 checks azuis,
+        // salvo Modo Discreto). Só conectado ⇒ ENTREGUE (2 checks cinzas).
+        if (isUserInConversation(access.otherUserId, conversationId)) {
+          status.markRead({
+            db, io, conversationId,
+            readerId: access.otherUserId, otherUserId: socket.user.id,
+          }).catch((error) => logger.error('❌ Erro ao marcar lida:', error));
+        } else if (isUserOnline(access.otherUserId)) {
           status.markDelivered({ db, io, conversationId, recipientId: access.otherUserId })
             .catch((error) => logger.error('❌ Erro ao marcar entregue:', error));
         }
+
+        // Garantia extra: quem está respondendo obviamente LEU o que recebeu
+        // nessa conversa. Marca tudo que chegou para ele como lido (respeitando
+        // o Modo Discreto), para os checks do outro lado não travarem em 1.
+        status.markRead({
+          db, io, conversationId, readerId: socket.user.id, otherUserId: access.otherUserId,
+        }).catch((error) => logger.error('❌ Erro ao marcar lidas ao responder:', error));
 
         // Avisa o destinatário (socket + push). Fica fora do try acima: a
         // mensagem já foi salva/confirmada, então uma falha aqui só é logada.

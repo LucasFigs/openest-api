@@ -73,12 +73,16 @@ async function readReceiptsAllowed(db, userAId, userBId) {
 // payload: { conversation_id, status, message_ids, read_receipts_blocked }
 const STATUS_EVENT = 'message_status_updated';
 
-function emitStatus(io, conversationId, payload) {
+// Emite para a sala da conversa E para a sala pessoal de cada remetente
+// afetado. Sem a sala pessoal, quem não está com o chat aberto (ou entrou
+// por outro dispositivo) nunca recebe a atualização dos próprios checks.
+function emitStatus(io, conversationId, payload, senderIds = []) {
   if (!io || !conversationId) return;
-  io.to(`chat_${conversationId}`).emit(STATUS_EVENT, {
-    conversation_id: conversationId,
-    ...payload,
-  });
+  const body = { conversation_id: conversationId, ...payload };
+  io.to(`chat_${conversationId}`).emit(STATUS_EVENT, body);
+  for (const senderId of new Set((senderIds || []).filter(Boolean).map(String))) {
+    io.to(`user_${senderId}`).emit(STATUS_EVENT, body);
+  }
 }
 
 // Aplica um status a todas as mensagens da conversa que NÃO foram enviadas
@@ -96,6 +100,7 @@ async function applyStatusToConversation({
   });
 
   const updatedIds = [];
+  const senderIds = new Set();
   let finalStatus = null;
 
   for (const message of messages) {
@@ -103,10 +108,11 @@ async function applyStatusToConversation({
     if (!patch) continue;
     await message.update(patch);
     updatedIds.push(message.id);
+    senderIds.add(String(message.sender_id));
     finalStatus = patch.status;
   }
 
-  return { updatedIds, status: finalStatus };
+  return { updatedIds, status: finalStatus, senderIds: Array.from(senderIds) };
 }
 
 // ENTREGUE: o destinatário recebeu (está online / abriu o app).
@@ -118,7 +124,7 @@ async function markDelivered({ db, io, conversationId, recipientId }) {
     emitStatus(io, conversationId, {
       status: MESSAGE_STATUS.DELIVERED,
       message_ids: result.updatedIds,
-    });
+    }, result.senderIds);
   }
   return result;
 }
@@ -138,7 +144,7 @@ async function markRead({ db, io, conversationId, readerId, otherUserId }) {
       status: result.status,
       message_ids: result.updatedIds,
       read_receipts_blocked: !allowRead,
-    });
+    }, result.senderIds);
   }
   return { ...result, allowRead };
 }

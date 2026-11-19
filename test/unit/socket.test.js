@@ -165,3 +165,63 @@ test('falha ao notificar não gera segundo ack nem erro para quem enviou', async
   assert.equal(acks.length, 1);
   assert.equal(acks[0].ok, true);
 });
+
+// --- Checks de leitura: quem abre OU responde, leu -------------------------
+// Fake do serviço de status para observar o que o socket dispara.
+function withStatusSpy() {
+  const calls = [];
+  const ctx = createDeps();
+  ctx.deps.messageStatus = {
+    MESSAGE_STATUS: { SENT: 'sent', DELIVERED: 'delivered', READ: 'read' },
+    markDelivered: async (args) => { calls.push({ fn: 'markDelivered', ...args }); return { updatedIds: [] }; },
+    markRead: async (args) => { calls.push({ fn: 'markRead', ...args }); return { updatedIds: [], allowRead: true }; },
+  };
+  ctx.calls = calls;
+  return ctx;
+}
+
+test('entrar na conversa marca como LIDA o que o usuário recebeu', async () => {
+  const ctx = withStatusSpy();
+  const { socket } = await connect('valid', ctx);
+
+  await socket.handlers.join_conversation(10, () => {});
+  await flush();
+
+  const read = ctx.calls.find((c) => c.fn === 'markRead');
+  assert.ok(read, 'join_conversation precisa marcar como lido');
+  assert.equal(read.readerId, 'u1');
+  assert.equal(String(read.conversationId), '10');
+});
+
+test('RESPONDER na conversa garante que o recebido vire LIDO (destrava 1 check)', async () => {
+  const ctx = withStatusSpy();
+  const { socket } = await connect('valid', ctx);
+
+  await socket.handlers.send_message({ conversation_id: 10, content: 'respondendo' }, () => {});
+  await flush();
+
+  const read = ctx.calls.find((c) => c.fn === 'markRead');
+  assert.ok(read, 'quem responde leu o que recebeu — sem isso os checks do outro lado travam');
+  assert.equal(read.readerId, 'u1');
+});
+
+test('mark_read via socket respeita a conversa e responde ack', async () => {
+  const ctx = withStatusSpy();
+  const { socket } = await connect('valid', ctx);
+
+  let ack = null;
+  await socket.handlers.mark_read({ conversation_id: 10 }, (r) => { ack = r; });
+  assert.equal(ack.ok, true);
+
+  let negado = null;
+  await socket.handlers.mark_read({ conversation_id: 99 }, (r) => { negado = r; });
+  assert.equal(negado.ok, false, 'conversa de terceiros é recusada');
+});
+
+test('mensagem nova nasce com status "sent" (1 check)', async () => {
+  const ctx = withStatusSpy();
+  const { socket } = await connect('valid', ctx);
+
+  await socket.handlers.send_message({ conversation_id: 10, content: 'oi' }, () => {});
+  assert.equal(ctx.created[0].status, 'sent');
+});

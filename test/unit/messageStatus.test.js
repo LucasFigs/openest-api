@@ -131,3 +131,56 @@ test('markRead não mexe nas mensagens do próprio leitor', async () => {
   assert.equal(messages[0].status, 'sent');
   assert.equal(io.emitted.length, 0, 'nada mudou → não emite');
 });
+
+// --- Entrega do evento para quem precisa ver os próprios checks -----------
+test('o evento vai para a sala da conversa E para a sala pessoal do remetente', async () => {
+  const messages = [fakeMessage(1, 'ALICE')];
+  const db = fakeDb({
+    messages,
+    users: [{ id: 'ALICE', modo_discreto: false }, { id: 'BOB', modo_discreto: false }],
+  });
+  const io = fakeIo();
+
+  await markRead({ db, io, conversationId: 7, readerId: 'BOB', otherUserId: 'ALICE' });
+
+  const salas = io.emitted.map((e) => e.room);
+  assert.ok(salas.includes('chat_7'), 'emite para a sala da conversa');
+  assert.ok(
+    salas.includes('user_ALICE'),
+    'emite para a sala pessoal da ALICE — sem isso, quem não está com o chat aberto nunca vê o check azul'
+  );
+  // Nunca manda para a sala do próprio leitor (ele não tem checks a atualizar).
+  assert.ok(!salas.includes('user_BOB'));
+});
+
+test('markDelivered também avisa a sala pessoal do remetente', async () => {
+  const messages = [fakeMessage(1, 'ALICE')];
+  const db = fakeDb({ messages, users: [] });
+  const io = fakeIo();
+
+  await markDelivered({ db, io, conversationId: 7, recipientId: 'BOB' });
+  const salas = io.emitted.map((e) => e.room);
+  assert.ok(salas.includes('chat_7'));
+  assert.ok(salas.includes('user_ALICE'));
+});
+
+test('transição completa sent → delivered → read grava status e carimbos', async () => {
+  const msg = fakeMessage(1, 'ALICE');
+  const db = fakeDb({
+    messages: [msg],
+    users: [{ id: 'ALICE', modo_discreto: false }, { id: 'BOB', modo_discreto: false }],
+  });
+  const io = fakeIo();
+
+  assert.equal(msg.status, 'sent');
+  assert.equal(msg.delivered_at, null);
+
+  await markDelivered({ db, io, conversationId: 7, recipientId: 'BOB' });
+  assert.equal(msg.status, 'delivered');
+  assert.ok(msg.delivered_at, 'carimba a entrega');
+  assert.equal(msg.read_at, null, 'ainda não foi lida');
+
+  await markRead({ db, io, conversationId: 7, readerId: 'BOB', otherUserId: 'ALICE' });
+  assert.equal(msg.status, 'read');
+  assert.ok(msg.read_at, 'carimba a leitura');
+});

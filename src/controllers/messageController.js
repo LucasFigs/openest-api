@@ -86,6 +86,12 @@ exports.sendMessage = async (req, res) => {
     // Sem await: o push é enviado em segundo plano e nunca derruba a resposta.
     notifyNewMessage({ io, conversationId: conversation_id, senderId: sender_id, senderName: req.user.name, senderAvatar: req.user.foto_url, recipientId, content });
 
+    // Quem responde, leu o que recebeu nessa conversa (respeitando o Modo
+    // Discreto). Em segundo plano: nunca derruba o envio.
+    messageStatus.markRead({
+      db, io, conversationId: conversation_id, readerId: sender_id, otherUserId: recipientId,
+    }).catch((e) => console.error('Erro ao marcar lidas ao responder:', e.message));
+
     return res.status(201).json(newMessage);
   } catch (error) { return res.status(500).json({ error: error.message }); }
 };
@@ -122,6 +128,23 @@ exports.getChatMessages = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
+
+    // Abrir a conversa conta como leitura. Marca ANTES de buscar para a
+    // resposta já sair com os status atualizados. Respeita o Modo Discreto
+    // e nunca derruba a listagem se algo falhar aqui.
+    if (page === 1 && req.user && req.user.id) {
+      try {
+        const access = await resolveParticipants(id, req.user.id);
+        if (access) {
+          await messageStatus.markRead({
+            db, io: req.app.get('socketio'), conversationId: id,
+            readerId: req.user.id, otherUserId: access.otherUserId,
+          });
+        }
+      } catch (statusError) {
+        console.error('Erro ao marcar conversa como lida:', statusError.message);
+      }
+    }
 
     const { count, rows } = await Message.findAndCountAll({ where: { conversation_id: id }, limit, offset, order: [['id', 'DESC']] });
     return res.json({ messages: rows, pagination: { total: count, page, limit, hasNext: count > (offset + limit) } });
