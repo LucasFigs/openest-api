@@ -15,6 +15,7 @@ const adminRoutes = require('./routes/adminRoutes'); // Importa as rotas relacio
 const swaggerUi = require('swagger-ui-express'); // Biblioteca para servir a interface do Swagger, que é uma ferramenta de documentação de APIs
 const swaggerJsdoc = require('swagger-jsdoc'); // Biblioteca para gerar a especificação do Swagger a partir de comentários JSDoc nas rotas, facilitando a documentação automática da API
 const eventRoutes = require('./routes/eventroutes');
+const { setupSocket } = require("./socket"); // T045 — eventos de chat em tempo real
 
 
 const app = express();
@@ -95,67 +96,8 @@ app.use("/health", healthRoutes);
 app.use("/api", interactionRoutes);
 app.use("/api", messageRoutes);
 
-// Autenticação básica via Socket
-io.use((socket, next) => {
-  const token = socket.handshake.auth.token; // Recebe o JWT do frontend
-  if (!token) return next(new Error("Erro de autenticação"));
-  // Aqui o servidor valida o token antes de permitir a conexão real
-  next();
-});
-
-io.on("connection", (socket) => {
-  console.log("📡 Novo cliente conectado ao WebSocket:", socket.id);
-
-  // 1. Entrar em uma sala específica (ESSENCIAL para o send_message funcionar)
-  socket.on("join_conversation", (conversationId) => {
-    socket.join(`chat_${conversationId}`);
-    console.log(`💬 Usuário entrou no chat: ${conversationId}`);
-  });
-
-  // 2. Receber e encaminhar mensagens (Task #27)
-  socket.on("send_message", async (data) => {
-    const { conversation_id, content, sender_id } = data;
-
-    try {
-      // Salva a mensagem no banco de dados
-      const newMessage = await db.Message.create({
-        conversation_id,
-        sender_id,
-        content,
-      });
-
-      // Envia para todos na sala da conversa
-      io.to(`chat_${conversation_id}`).emit("new_message", newMessage);
-    } catch (error) {
-      console.error("❌ Erro ao processar mensagem via Socket:", error);
-    }
-  });
-
-  // 3. Indicador de Digitação (Task #64)
-  
-  // Quando o frontend emite que começou a digitar
-  socket.on("typing_start", ({ conversation_id, user_id }) => {
-    // Envia o estado de "digitando" para os outros na mesma sala
-    socket.to(`chat_${conversation_id}`).emit("user_typing", { 
-      user_id, 
-      is_typing: true 
-    });
-  });
-
-  // Quando o frontend emite que parou (ou após o timeout)
-  socket.on("typing_stop", ({ conversation_id, user_id }) => {
-    // Avisa para remover o "Digitando..." da tela
-    socket.to(`chat_${conversation_id}`).emit("user_typing", { 
-      user_id, 
-      is_typing: false 
-    });
-  });
-
-  // 4. Desconexão
-  socket.on("disconnect", () => {
-    console.log("🔌 Cliente desconectado");
-  });
-});
+// Autenticação + eventos do Socket.IO (T045/T048) — ver src/socket.js
+setupSocket(io);
 
 const PORT = 3000;
 

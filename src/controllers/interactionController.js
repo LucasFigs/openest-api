@@ -1,9 +1,11 @@
 const { Interaction, Match, Conversation, Message } = require('../models');
 console.log('🔎 Modelos válidos no Sequelize:', Object.keys(require('../models')));
 const { Op } = require('sequelize'); // Importante para o Op.or
+const { notifyNewMatch } = require('../services/notificationService'); // T048 — aviso de novo match
 
 // ─── Função atualizada com a lógica de conversação ──────────────────────────
-const checkMatch = async (userA, userB) => {
+// `io` (opcional): instância do Socket.io para avisar os dois usuários em tempo real.
+const checkMatch = async (userA, userB, io = null) => {
   const interactionBack = await Interaction.findOne({
     where: { from_user_id: userB, to_user_id: userA, type: 'like' }
   });
@@ -23,11 +25,15 @@ const checkMatch = async (userA, userB) => {
       const newMatch = await Match.create({ user1_id: userA, user2_id: userB });
       
       // 2. Cria a Conversa ligada a esse Match exato (agora usando match_id)
-      await Conversation.create({
+      const conversation = await Conversation.create({
         match_id: newMatch.id // Usando a coluna correta que está no seu modelo!
       });
       
       console.log(`🔥 MATCH REAL & CONVERSA PRONTA: ${userA} & ${userB}`);
+
+      // T048 — socket `new_match` para os dois + push para quem foi curtido.
+      // Sem await: o push roda em segundo plano e nunca quebra a curtida.
+      notifyNewMatch({ io, matchId: newMatch.id, conversationId: conversation.id, likerId: userA, likedId: userB });
     }
     return true; 
   }
@@ -59,7 +65,7 @@ const curtirPerfil = async (req, res) => {
       type: 'like'
     });
 
-    const matchResult = await checkMatch(from_user_id, to_user_id);
+    const matchResult = await checkMatch(from_user_id, to_user_id, req.app.get('socketio'));
 
     return res.status(201).json({
         message: "Interação registrada!",
