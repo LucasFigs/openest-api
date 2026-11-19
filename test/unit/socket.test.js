@@ -81,7 +81,7 @@ test('com JWT válido identifica o usuário e entra na sala pessoal', async () =
   const { error, socket } = await connect('valid');
   assert.equal(error, undefined);
   assert.deepEqual(socket.user, { id: 'u1' });
-  assert.ok(socket.rooms.has('user_u1'));
+  assert.ok(socket.rooms.has('user:u1'));
 });
 
 test('join_conversation só entra na sala se o usuário participa da conversa', async () => {
@@ -175,6 +175,7 @@ function withStatusSpy() {
     MESSAGE_STATUS: { SENT: 'sent', DELIVERED: 'delivered', READ: 'read' },
     markDelivered: async (args) => { calls.push({ fn: 'markDelivered', ...args }); return { updatedIds: [] }; },
     markRead: async (args) => { calls.push({ fn: 'markRead', ...args }); return { updatedIds: [], allowRead: true }; },
+    resyncDelivered: async (args) => { calls.push({ fn: 'resyncDelivered', ...args }); return { updatedIds: [] }; },
   };
   ctx.calls = calls;
   return ctx;

@@ -10,6 +10,8 @@
 // Isso vale nos dois sentidos: quem liga o Modo Discreto também deixa de ver
 // os checks azuis das mensagens que ele enviou.
 
+const { userRoom } = require('../utils/rooms');
+
 const MESSAGE_STATUS = {
   SENT: 'sent',
   DELIVERED: 'delivered',
@@ -81,7 +83,7 @@ function emitStatus(io, conversationId, payload, senderIds = []) {
   const body = { conversation_id: conversationId, ...payload };
   io.to(`chat_${conversationId}`).emit(STATUS_EVENT, body);
   for (const senderId of new Set((senderIds || []).filter(Boolean).map(String))) {
-    io.to(`user_${senderId}`).emit(STATUS_EVENT, body);
+    io.to(userRoom(senderId)).emit(STATUS_EVENT, body);
   }
 }
 
@@ -149,7 +151,60 @@ async function markRead({ db, io, conversationId, readerId, otherUserId }) {
   return { ...result, allowRead };
 }
 
+// RESYNC ao conectar/reconectar: tudo que foi enviado para este usuário
+// enquanto ele estava offline passa de `sent` para `delivered` de uma vez só,
+// e cada remetente é avisado na sua sala pessoal. É isso que faz os checks do
+// outro lado chegarem a 2 sem ninguém precisar reabrir a conversa.
+async function resyncDelivered({ db, io, userId, now = new Date() }) {
+  if (!userId) return { updatedIds: [], porRemetente: {} };
+
+  // Um UPDATE só, direto no banco: pega as mensagens das conversas em que o
+  // usuário participa e que NÃO foram enviadas por ele.
+  const [linhas] = await db.sequelize.query(
+    `UPDATE messages m
+        SET status = :entregue,
+            delivered_at = COALESCE(m.delivered_at, :agora)
+       FROM conversations c
+       JOIN matches mt ON mt.id = c.match_id
+      WHERE m.conversation_id = c.id
+        AND m.sender_id <> :userId
+        AND (mt.user1_id = :userId OR mt.user2_id = :userId)
+        AND m.status = :enviado
+    RETURNING m.id, m.sender_id, m.conversation_id`,
+    {
+      replacements: {
+        userId, agora: now,
+        enviado: MESSAGE_STATUS.SENT,
+        entregue: MESSAGE_STATUS.DELIVERED,
+      },
+    }
+  );
+
+  const atualizadas = linhas || [];
+  if (!atualizadas.length) return { updatedIds: [], porRemetente: {} };
+
+  // Agrupa por remetente + conversa para emitir um evento por destino.
+  const porRemetente = {};
+  for (const linha of atualizadas) {
+    const chave = `${linha.sender_id}|${linha.conversation_id}`;
+    if (!porRemetente[chave]) {
+      porRemetente[chave] = { senderId: linha.sender_id, conversationId: linha.conversation_id, ids: [] };
+    }
+    porRemetente[chave].ids.push(linha.id);
+  }
+
+  for (const grupo of Object.values(porRemetente)) {
+    emitStatus(io, grupo.conversationId, {
+      status: MESSAGE_STATUS.DELIVERED,
+      message_ids: grupo.ids,
+    }, [grupo.senderId]);
+  }
+
+  return { updatedIds: atualizadas.map((l) => l.id), porRemetente };
+}
+
 module.exports = {
+  resyncDelivered,
   STATUS_EVENT,
   emitStatus,
   applyStatusToConversation,

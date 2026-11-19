@@ -2,6 +2,7 @@
 // e matches. Centraliza o que antes estava duplicado nos controllers, para
 // REST e WebSocket notificarem do mesmo jeito.
 const db = require('../models');
+const { userRoom } = require('../utils/rooms');
 const { sendPushNotifications } = require('./pushService');
 const {
   buildMatchNotification,
@@ -64,7 +65,7 @@ async function notifyNewMessage({ io, conversationId, senderId, senderName, send
       recipientDiscreet: !!recipient?.modo_discreto,
     });
 
-    if (io) io.to(`user_${recipientId}`).emit('notification', payload);
+    if (io) io.to(userRoom(recipientId)).emit('notification', payload);
 
     await pushToUser(recipientId, {
       title: payload.title,
@@ -92,7 +93,7 @@ async function notifyNewMatch({ io, matchId, conversationId, likerId, likedId })
     if (io) {
       [likerId, likedId].forEach((userId) => {
         const other = String(userId) === String(likerId) ? liked : liker;
-        io.to(`user_${userId}`).emit('new_match', buildRealtimeMatchPayload({
+        io.to(userRoom(userId)).emit('new_match', buildRealtimeMatchPayload({
           matchId,
           conversationId,
           otherUserId: other?.id,

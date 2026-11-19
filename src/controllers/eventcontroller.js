@@ -2,6 +2,7 @@ const db = require('../models');
 const { Match, User, Conversation } = db;
 const { Op } = require('sequelize');
 const { resolverOutroParticipante, mesclarEncontros } = require('../utils/eventos');
+const { userRoom } = require('../utils/rooms');
 
 const meusEncontros = async (req, res) => {
   try {
@@ -217,8 +218,8 @@ const cancelarEvento = async (req, res) => {
       const io = req.app.get('socketio');
       if (io) {
         const payload = { by: userId, other_user_id: otherUserId };
-        io.to(`user_${userId}`).emit('encontro_cancelado', payload);
-        io.to(`user_${otherUserId}`).emit('encontro_cancelado', { by: userId, other_user_id: userId });
+        io.to(userRoom(userId)).emit('encontro_cancelado', payload);
+        io.to(userRoom(otherUserId)).emit('encontro_cancelado', { by: userId, other_user_id: userId });
       }
     } catch (socketError) {
       console.error('Erro ao emitir encontro_cancelado:', socketError.message);
