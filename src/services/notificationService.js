@@ -4,9 +4,10 @@
 const db = require('../models');
 const { sendPushNotifications } = require('./pushService');
 const {
-  buildMessageNotification,
   buildMatchNotification,
   buildNotificationData,
+  buildRealtimeMessagePayload,
+  buildRealtimeMatchPayload,
   getOtherParticipantId,
 } = require('./notificationContent');
 
@@ -43,29 +44,31 @@ async function pushToUser(userId, payload) {
 
 // Nova mensagem: avisa o destinatário pela sala pessoal do socket
 // (`user_<id>`) e por push. Nunca lança — a mensagem já foi salva.
-async function notifyNewMessage({ io, conversationId, senderId, senderName, recipientId, content, isImage = false }) {
+async function notifyNewMessage({ io, conversationId, senderId, senderName, senderAvatar, recipientId, content, isImage = false }) {
   try {
-    const recipient = await db.User.findByPk(recipientId, { attributes: ['id', 'modo_discreto'] });
-    const { title, body } = buildMessageNotification({
-      senderName,
-      recipientDiscreet: !!recipient?.modo_discreto,
+    const [recipient, sender] = await Promise.all([
+      db.User.findByPk(recipientId, { attributes: ['id', 'modo_discreto'] }),
+      // Foto (Cloudinary) + nome do remetente para o banner, se não vieram prontos.
+      senderAvatar && senderName
+        ? Promise.resolve(null)
+        : db.User.findByPk(senderId, { attributes: ['name', 'foto_url'] }),
+    ]);
+
+    const payload = buildRealtimeMessagePayload({
+      conversationId,
+      senderId,
+      senderName: senderName || sender?.name || null,
+      senderAvatar: senderAvatar || sender?.foto_url || null,
       content,
       isImage,
+      recipientDiscreet: !!recipient?.modo_discreto,
     });
 
-    if (io) {
-      io.to(`user_${recipientId}`).emit('notification', {
-        type: 'message',
-        title,
-        body,
-        conversation_id: conversationId,
-        sender_id: senderId,
-      });
-    }
+    if (io) io.to(`user_${recipientId}`).emit('notification', payload);
 
     await pushToUser(recipientId, {
-      title,
-      body,
+      title: payload.title,
+      body: payload.body,
       data: buildNotificationData({ type: 'message', conversationId }),
     });
   } catch (error) {
@@ -80,7 +83,7 @@ async function notifyNewMatch({ io, matchId, conversationId, likerId, likedId })
   try {
     const users = await db.User.findAll({
       where: { id: [likerId, likedId] },
-      attributes: ['id', 'name', 'modo_discreto'],
+      attributes: ['id', 'name', 'foto_url', 'modo_discreto'],
     });
     const byId = Object.fromEntries(users.map((u) => [String(u.id), u]));
     const liker = byId[String(likerId)];
@@ -88,12 +91,15 @@ async function notifyNewMatch({ io, matchId, conversationId, likerId, likedId })
 
     if (io) {
       [likerId, likedId].forEach((userId) => {
-        const otherId = String(userId) === String(likerId) ? likedId : likerId;
-        io.to(`user_${userId}`).emit('new_match', {
-          match_id: matchId,
-          conversation_id: conversationId,
-          user_id: otherId,
-        });
+        const other = String(userId) === String(likerId) ? liked : liker;
+        io.to(`user_${userId}`).emit('new_match', buildRealtimeMatchPayload({
+          matchId,
+          conversationId,
+          otherUserId: other?.id,
+          otherUserName: other?.name,
+          otherUserAvatar: other?.foto_url,
+          otherDiscreet: !!other?.modo_discreto,
+        }));
       });
     }
 

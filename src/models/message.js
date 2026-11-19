@@ -29,6 +29,17 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: false
     },
+    // Confirmação de entrega/leitura (estilo WhatsApp):
+    // 'sent' = 1 check | 'delivered' = 2 checks cinzas | 'read' = 2 azuis.
+    status: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'sent'
+    },
+    delivered_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
     read_at: {
       type: DataTypes.DATE,
       allowNull: true

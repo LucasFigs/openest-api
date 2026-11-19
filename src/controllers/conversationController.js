@@ -34,7 +34,15 @@ exports.listConversations = async (req, res) => {
       };
     }));
 
-    return res.status(200).json(formatted);
+    // 🔒 Deduplicação: cada contato aparece UMA vez na lista de conversas,
+    // mesmo que existam matches/conversas duplicados para o mesmo par.
+    const porContato = new Map();
+    for (const conv of formatted) {
+      const chave = conv.other_user_id ? String(conv.other_user_id) : `conv-${conv.id}`;
+      if (!porContato.has(chave)) porContato.set(chave, conv);
+    }
+
+    return res.status(200).json(Array.from(porContato.values()));
   } catch (error) {
     console.error("Erro ao listar conversas:", error);
     return res.status(500).json({ error: error.message });
