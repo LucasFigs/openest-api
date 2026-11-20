@@ -8,6 +8,8 @@ module.exports = (sequelize, DataTypes) => {
       this.belongsTo(models.Conversation, { foreignKey: 'conversation_id', as: 'conversation' });
       // Uma mensagem pertence a um remetente (usuário)
       this.belongsTo(models.User, { foreignKey: 'sender_id', as: 'sender' });
+      // Resposta com citação: a mensagem que esta responde.
+      this.belongsTo(models.Message, { foreignKey: 'reply_to_id', as: 'replyTo' });
     }
   }
 
@@ -68,6 +70,11 @@ module.exports = (sequelize, DataTypes) => {
     // só esconde o recibo do remetente). Alimenta o contador de não lidas.
     seen_at: {
       type: DataTypes.DATE,
+      allowNull: true
+    },
+    // Mensagem citada (resposta estilo WhatsApp). NULL = não é resposta.
+    reply_to_id: {
+      type: DataTypes.INTEGER,
       allowNull: true
     }
   }, {

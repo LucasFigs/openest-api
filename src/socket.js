@@ -22,6 +22,7 @@ const messageStatus = require('./services/messageStatus');
 const { userRoom, chatRoom } = require('./utils/rooms');
 const { serializeMessage } = require('./services/messageSerializer');
 const viewOnceService = require('./services/viewOnce');
+const { findReplyTarget } = require('./services/replies');
 
 function defaultVerifyToken(token) {
   return new Promise((resolve, reject) => {
@@ -145,14 +146,22 @@ function setupSocket(io, deps = {}) {
         const access = await notifications.getConversationAccess(conversationId, socket.user.id);
         if (!access) return reply({ ok: false, error: 'Conversa não encontrada' });
 
+        // Resposta com citação: só vale uma mensagem da MESMA conversa.
+        const citada = data.reply_to_id != null
+          ? await findReplyTarget({
+            Message: db.Message, User: db.User, conversationId, replyToId: data.reply_to_id,
+          })
+          : null;
+
         const newMessage = await db.Message.create({
           conversation_id: conversationId,
           sender_id: socket.user.id,
           content,
           status: status.MESSAGE_STATUS.SENT, // 1 check cinza
+          reply_to_id: citada ? citada.id : null,
         });
 
-        const publicMessage = serializeMessage(newMessage);
+        const publicMessage = serializeMessage(newMessage, citada);
         io.to(chatRoom(conversationId)).emit('new_message', publicMessage);
         reply({ ok: true, message: publicMessage });
 
