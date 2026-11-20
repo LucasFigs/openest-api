@@ -296,6 +296,23 @@ const atualizarModoDiscreto = async (req, res) => {
   }
 };
 
+// IDs que a Descoberta deve esconder de `userId`: ele mesmo, todo perfil com
+// que já interagiu (qualquer tipo) e todo perfil com quem tem match.
+const idsJaProcessados = async (userId) => {
+  const { Op } = db.Sequelize;
+  const [interagidos, matches] = await Promise.all([
+    db.Interaction.findAll({ where: { from_user_id: userId }, attributes: ['to_user_id'] }),
+    db.Match.findAll({
+      where: { [Op.or]: [{ user1_id: userId }, { user2_id: userId }] },
+      attributes: ['user1_id', 'user2_id'],
+    }),
+  ]);
+  const ids = new Set([userId]);
+  interagidos.forEach((i) => ids.add(i.to_user_id));
+  matches.forEach((m) => ids.add(m.user1_id === userId ? m.user2_id : m.user1_id));
+  return [...ids];
+};
+
 const buscarPerfis = async (req, res) => {
   try {
     const { Op } = db.Sequelize;
@@ -304,12 +321,10 @@ const buscarPerfis = async (req, res) => {
     const { page = 1, limit = 10, idade_min, idade_max, status } = req.query;
     const offset = (page - 1) * limit;
 
-    const interagidos = await db.Interaction.findAll({
-      where: { from_user_id: userId },
-      attributes: ['to_user_id']
-    });
-    const idsParaExcluir = interagidos.map(i => i.to_user_id);
-    idsParaExcluir.push(userId);
+    // Nunca devolve quem eu já processei: qualquer interação minha (like,
+    // pass — o bloqueio também é gravado como pass) e quem já é meu match
+    // (mesmo que a curtida tenha sido desfeita e o match mantido).
+    const idsParaExcluir = await idsJaProcessados(userId);
 
     let whereClause = {
       id: { [Op.notIn]: idsParaExcluir },
@@ -458,6 +473,7 @@ module.exports = {
   resetPassword,
   uploadPhoto,
   buscarPerfis,
+  idsJaProcessados,
   obterPerfil,
   atualizarPerfil,
   atualizarModoDiscreto,

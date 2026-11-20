@@ -55,8 +55,17 @@ const curtirPerfil = async (req, res) => {
       where: { from_user_id, to_user_id, type: 'like' }
     });
 
+    // Idempotente: repetir a curtida (retry de rede, toque duplo, baralho
+    // desatualizado) não é erro. Devolve 200 com o estado do match — e
+    // checkMatch ainda cria o match se a 1ª tentativa caiu no meio.
     if (jaCurtiu) {
-      return res.status(400).json({ message: "Você já curtiu este perfil." });
+      const matchExistente = await checkMatch(from_user_id, to_user_id, req.app.get('socketio'));
+      return res.status(200).json({
+        message: "Você já curtiu este perfil.",
+        ja_curtiu: true,
+        match: !!matchExistente,
+        data: matchExistente
+      });
     }
 
     await Interaction.create({
@@ -86,6 +95,14 @@ const passarPerfil = async (req, res) => {
   try {
     if (from_user_id === to_user_id) {
       return res.status(400).json({ message: "Você não pode passar a si mesmo." });
+    }
+
+    // Idempotente: um "passar" repetido não duplica a linha.
+    const jaPassou = await Interaction.findOne({
+      where: { from_user_id, to_user_id, type: 'pass' }
+    });
+    if (jaPassou) {
+      return res.status(200).json({ message: "Perfil já passado.", ja_passou: true, match: false });
     }
 
     await Interaction.create({
