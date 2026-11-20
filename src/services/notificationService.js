@@ -2,6 +2,7 @@
 // e matches. Centraliza o que antes estava duplicado nos controllers, para
 // REST e WebSocket notificarem do mesmo jeito.
 const db = require('../models');
+const { userRoom } = require('../utils/rooms');
 const { sendPushNotifications } = require('./pushService');
 const {
   buildMatchNotification,
@@ -44,7 +45,7 @@ async function pushToUser(userId, payload) {
 
 // Nova mensagem: avisa o destinatário pela sala pessoal do socket
 // (`user_<id>`) e por push. Nunca lança — a mensagem já foi salva.
-async function notifyNewMessage({ io, conversationId, senderId, senderName, senderAvatar, recipientId, content, isImage = false }) {
+async function notifyNewMessage({ io, conversationId, senderId, senderName, senderAvatar, recipientId, content, isImage = false, isViewOnce = false }) {
   try {
     const [recipient, sender] = await Promise.all([
       db.User.findByPk(recipientId, { attributes: ['id', 'modo_discreto'] }),
@@ -61,10 +62,11 @@ async function notifyNewMessage({ io, conversationId, senderId, senderName, send
       senderAvatar: senderAvatar || sender?.foto_url || null,
       content,
       isImage,
+      isViewOnce,
       recipientDiscreet: !!recipient?.modo_discreto,
     });
 
-    if (io) io.to(`user_${recipientId}`).emit('notification', payload);
+    if (io) io.to(userRoom(recipientId)).emit('notification', payload);
 
     await pushToUser(recipientId, {
       title: payload.title,
@@ -92,7 +94,7 @@ async function notifyNewMatch({ io, matchId, conversationId, likerId, likedId })
     if (io) {
       [likerId, likedId].forEach((userId) => {
         const other = String(userId) === String(likerId) ? liked : liker;
-        io.to(`user_${userId}`).emit('new_match', buildRealtimeMatchPayload({
+        io.to(userRoom(userId)).emit('new_match', buildRealtimeMatchPayload({
           matchId,
           conversationId,
           otherUserId: other?.id,

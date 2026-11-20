@@ -15,9 +15,12 @@ function looksLikeImageUrl(content) {
   return typeof content === 'string' && /^https?:\/\/\S+\.(png|jpe?g|gif|webp|heic)(\?\S*)?$/i.test(content.trim());
 }
 
-function buildMessageNotification({ senderName, recipientDiscreet, content, isImage = false }) {
+function buildMessageNotification({ senderName, recipientDiscreet, content, isImage = false, isViewOnce = false }) {
   if (recipientDiscreet) return { ...DISCREET_MESSAGE };
-  const body = isImage || looksLikeImageUrl(content) ? '📷 Nova imagem recebida' : truncate(content) || 'Nova mensagem';
+  let body;
+  if (isViewOnce) body = '📷 Foto de visualização única';
+  else if (isImage || looksLikeImageUrl(content)) body = '📷 Nova imagem recebida';
+  else body = truncate(content) || 'Nova mensagem';
   return { title: senderName || 'Nova mensagem', body };
 }
 
@@ -55,10 +58,15 @@ function safeAvatar(url) {
 // (Cloudinary) e prévia da mensagem. Modo Discreto do destinatário esconde
 // nome, foto e texto (vira aviso genérico).
 function buildRealtimeMessagePayload({
-  conversationId, senderId, senderName, senderAvatar, content, isImage = false, recipientDiscreet = false,
+  conversationId, senderId, senderName, senderAvatar, content, isImage = false, isViewOnce = false,
+  recipientDiscreet = false,
 }) {
-  const { title, body } = buildMessageNotification({ senderName, recipientDiscreet, content, isImage });
-  const preview = isImage || looksLikeImageUrl(content) ? '📷 Nova imagem' : truncate(content);
+  const { title, body } = buildMessageNotification({ senderName, recipientDiscreet, content, isImage, isViewOnce });
+  // Visualização única nunca leva a URL, nem na prévia.
+  let preview;
+  if (isViewOnce) preview = '📷 Foto de visualização única';
+  else if (isImage || looksLikeImageUrl(content)) preview = '📷 Nova imagem';
+  else preview = truncate(content);
   return {
     type: 'message',
     conversation_id: conversationId,

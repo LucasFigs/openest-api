@@ -146,11 +146,11 @@ test('o evento vai para a sala da conversa E para a sala pessoal do remetente', 
   const salas = io.emitted.map((e) => e.room);
   assert.ok(salas.includes('chat_7'), 'emite para a sala da conversa');
   assert.ok(
-    salas.includes('user_ALICE'),
+    salas.includes('user:ALICE'),
     'emite para a sala pessoal da ALICE — sem isso, quem não está com o chat aberto nunca vê o check azul'
   );
   // Nunca manda para a sala do próprio leitor (ele não tem checks a atualizar).
-  assert.ok(!salas.includes('user_BOB'));
+  assert.ok(!salas.includes('user:BOB'));
 });
 
 test('markDelivered também avisa a sala pessoal do remetente', async () => {
@@ -161,7 +161,7 @@ test('markDelivered também avisa a sala pessoal do remetente', async () => {
   await markDelivered({ db, io, conversationId: 7, recipientId: 'BOB' });
   const salas = io.emitted.map((e) => e.room);
   assert.ok(salas.includes('chat_7'));
-  assert.ok(salas.includes('user_ALICE'));
+  assert.ok(salas.includes('user:ALICE'));
 });
 
 test('transição completa sent → delivered → read grava status e carimbos', async () => {

@@ -43,7 +43,7 @@ function createFakeDeps() {
         },
         notifyNewMessage: async (payload) => {
           notified.push(payload);
-          payload.io.to(`user_${payload.recipientId}`).emit('notification', {
+          payload.io.to(`user:${payload.recipientId}`).emit('notification', {
             type: 'message',
             conversation_id: payload.conversationId,
           });
