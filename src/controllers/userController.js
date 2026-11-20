@@ -103,9 +103,13 @@ const forgotPassword = async (req, res) => {
       { bind: [email, token, expiresAt] }
     );
 
+    // O link abre a tela de recuperação do WEB (a API só responde JSON).
+    // No app, a pessoa cola o token na tela "Redefinir senha".
+    const webUrl = (process.env.WEB_APP_URL || 'http://localhost:5173').replace(/\/+$/, '');
     console.log(`--- ENVIO DE E-MAIL (MOCK) ---`);
     console.log(`Para: ${email}`);
-    console.log(`Link: http://localhost:3000/reset-password?token=${token}`);
+    console.log(`Link (web): ${webUrl}/recovery?token=${token}`);
+    console.log(`Token (app): ${token}`);
     console.log(`------------------------------`);
 
     res.json({ message: "Se este e-mail estiver cadastrado, um link de recuperação foi enviado." });
@@ -115,8 +119,16 @@ const forgotPassword = async (req, res) => {
   }
 };
 
+const MIN_PASSWORD_LENGTH = 6;
+
 const resetPassword = async (req, res) => {
-  const { token, newPassword } = req.body;
+  const { token, newPassword } = req.body || {};
+  // Mesma regra do cadastro; antes a senha nova não era validada aqui.
+  if (!token || typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({
+      error: `Informe o token e uma senha com pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+    });
+  }
   try {
     const [resetRequest] = await db.sequelize.query(
       'SELECT email, expires_at FROM password_resets WHERE token = $1',
