@@ -127,15 +127,98 @@ test('Descoberta exclui curtidos, passados, matches (mesmo sem interação) e o 
     }
     assert.ok(!ids.includes(livre.id));
 
-    // A rota real também não devolve nenhum deles (limite alto para varrer a base de teste).
+    // A rota real também não devolve nenhum deles (página máxima; os criados agora vêm primeiro).
     const res = mockRes();
-    await userController.buscarPerfis(mockReq(eu.id, { query: { limit: 10000 } }), res);
+    await userController.buscarPerfis(mockReq(eu.id, { query: { limit: 100 } }), res);
     assert.equal(res.statusCode, 200);
     const devolvidos = res.body.perfis.map((p) => p.id);
     for (const u of [eu, curtido, passado, matchSemInteracao]) {
       assert.ok(!devolvidos.includes(u.id), `${u.name} não pode voltar na Descoberta`);
     }
     assert.ok(devolvidos.includes(livre.id), 'perfil sem interação continua aparecendo');
+  } finally {
+    await limpar(usuarios);
+  }
+});
+
+test('curtidas e passes simultâneos (toque duplo) gravam uma linha só', async () => {
+  const usuarios = await criarUsuarios(3);
+  const [eu, ela, ele] = usuarios;
+  try {
+    const curtidas = await Promise.all(Array.from({ length: 5 }, () => curtir(eu, ela)));
+    assert.deepEqual(curtidas.map((r) => r.statusCode).sort(), [200, 200, 200, 200, 201]);
+    assert.equal(await db.Interaction.count({ where: { from_user_id: eu.id, to_user_id: ela.id, type: 'like' } }), 1);
+
+    const passes = await Promise.all(Array.from({ length: 5 }, () => passar(eu, ele)));
+    assert.deepEqual(passes.map((r) => r.statusCode).sort(), [200, 200, 200, 200, 201]);
+    assert.equal(await db.Interaction.count({ where: { from_user_id: eu.id, to_user_id: ele.id, type: 'pass' } }), 1);
+  } finally {
+    await limpar(usuarios);
+  }
+});
+
+test('curtidas recíprocas no mesmo instante criam 1 match e 1 conversa', async () => {
+  const { Op } = db.Sequelize;
+  for (let rodada = 0; rodada < 3; rodada += 1) {
+    const usuarios = await criarUsuarios(2);
+    const [a, b] = usuarios;
+    try {
+      const [ra, rb] = await Promise.all([curtir(a, b), curtir(b, a)]);
+      // Exatamente um dos dois "fecha" o match.
+      assert.equal([ra.body.match, rb.body.match].filter(Boolean).length, 1);
+      const matches = await db.Match.findAll({
+        where: { [Op.or]: [{ user1_id: a.id, user2_id: b.id }, { user1_id: b.id, user2_id: a.id }] },
+      });
+      assert.equal(matches.length, 1);
+      assert.equal(await db.Conversation.count({ where: { match_id: matches[0].id } }), 1);
+    } finally {
+      await limpar(usuarios);
+    }
+  }
+});
+
+test('alvo inválido: id malformado → 400, inexistente → 404, a si mesmo → 400 (nada gravado)', async () => {
+  const usuarios = await criarUsuarios(1);
+  const [eu] = usuarios;
+  try {
+    for (const acao of [interactionController.curtirPerfil, interactionController.passarPerfil]) {
+      const malformado = mockRes();
+      await acao(mockReq(eu.id, { params: { usuarioId: 'nao-e-uuid' } }), malformado);
+      assert.equal(malformado.statusCode, 400);
+
+      const inexistente = mockRes();
+      await acao(mockReq(eu.id, { params: { usuarioId: '00000000-0000-4000-8000-000000000000' } }), inexistente);
+      assert.equal(inexistente.statusCode, 404);
+
+      const proprio = mockRes();
+      await acao(mockReq(eu.id, { params: { usuarioId: eu.id } }), proprio);
+      assert.equal(proprio.statusCode, 400);
+    }
+    const desfazer = mockRes();
+    await interactionController.desfazerInteracao(mockReq(eu.id, { params: { usuarioId: 'xyz' } }), desfazer);
+    assert.equal(desfazer.statusCode, 400);
+    assert.equal(await db.Interaction.count({ where: { from_user_id: eu.id } }), 0);
+  } finally {
+    await limpar(usuarios);
+  }
+});
+
+test('buscar com paginação/idade inválidas usa o padrão em vez de 500', async () => {
+  const usuarios = await criarUsuarios(1);
+  const [eu] = usuarios;
+  try {
+    const res = mockRes();
+    await userController.buscarPerfis(
+      mockReq(eu.id, { query: { page: '-3', limit: 'abc', idade_min: 'x', idade_max: '' } }), res,
+    );
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.pagina_atual, 1);
+    assert.ok(res.body.perfis.length <= 10);
+
+    const grande = mockRes();
+    await userController.buscarPerfis(mockReq(eu.id, { query: { limit: '999999' } }), grande);
+    assert.equal(grande.statusCode, 200);
+    assert.ok(grande.body.perfis.length <= 100, 'limit tem teto');
   } finally {
     await limpar(usuarios);
   }

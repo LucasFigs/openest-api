@@ -296,6 +296,9 @@ const atualizarModoDiscreto = async (req, res) => {
   }
 };
 
+// Teto do tamanho de página da Descoberta (web e mobile pedem 10).
+const BUSCAR_LIMITE_MAX = 100;
+
 // IDs que a Descoberta deve esconder de `userId`: ele mesmo, todo perfil com
 // que já interagiu (qualquer tipo) e todo perfil com quem tem match.
 const idsJaProcessados = async (userId) => {
@@ -318,7 +321,18 @@ const buscarPerfis = async (req, res) => {
     const { Op } = db.Sequelize;
     const userId = req.user.id;
 
-    const { page = 1, limit = 10, idade_min, idade_max, status } = req.query;
+    // Paginação e idades saneadas: valores inválidos (ex.: limit=abc,
+    // page=-1, idade_min=xyz) usam o padrão em vez de derrubar a query (500).
+    const inteiro = (valor, padrao, min, max) => {
+      const n = Number.parseInt(valor, 10);
+      if (!Number.isFinite(n)) return padrao;
+      return Math.min(Math.max(n, min), max);
+    };
+    const { status } = req.query;
+    const page = inteiro(req.query.page, 1, 1, 10000);
+    const limit = inteiro(req.query.limit, 10, 1, BUSCAR_LIMITE_MAX);
+    const idade_min = inteiro(req.query.idade_min, null, 18, 120);
+    const idade_max = inteiro(req.query.idade_max, null, 18, 120);
     const offset = (page - 1) * limit;
 
     // Nunca devolve quem eu já processei: qualquer interação minha (like,
@@ -336,12 +350,12 @@ const buscarPerfis = async (req, res) => {
       whereClause.birth_date = {};
 
       if (idade_min) {
-        const dataLimiteMax = new Date(hoje.getFullYear() - parseInt(idade_min), hoje.getMonth(), hoje.getDate());
+        const dataLimiteMax = new Date(hoje.getFullYear() - idade_min, hoje.getMonth(), hoje.getDate());
         whereClause.birth_date[Op.lte] = dataLimiteMax;
       }
 
       if (idade_max) {
-        const dataLimiteMin = new Date(hoje.getFullYear() - parseInt(idade_max) - 1, hoje.getMonth(), hoje.getDate());
+        const dataLimiteMin = new Date(hoje.getFullYear() - idade_max - 1, hoje.getMonth(), hoje.getDate());
         whereClause.birth_date[Op.gte] = dataLimiteMin;
       }
     }
@@ -359,8 +373,8 @@ const buscarPerfis = async (req, res) => {
 
     const fetchPerfis = async (where) => db.User.findAndCountAll({
       where,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+      limit,
+      offset,
       attributes: ['id', 'name', 'birth_date', 'status_relacionamento', 'foto_url', 'photos', 'bio'],
       order: [['created_at', 'DESC']]
     });
@@ -400,8 +414,8 @@ const buscarPerfis = async (req, res) => {
     return res.status(200).json({
       total_resultados: count,
       total_paginas: Math.ceil(count / limit),
-      pagina_atual: parseInt(page),
-      hasMore: parseInt(page) < Math.ceil(count / limit),
+      pagina_atual: page,
+      hasMore: page < Math.ceil(count / limit),
       fallback_aplicado,
       perfis: perfisFormatados
     });
