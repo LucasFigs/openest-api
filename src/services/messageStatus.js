@@ -91,13 +91,15 @@ function emitStatus(io, conversationId, payload, senderIds = []) {
 // por `viewerId` (ou seja, as que ele recebeu) e que ainda não chegaram lá.
 // Devolve { updatedIds, status } — vazio quando não havia nada a mudar.
 async function applyStatusToConversation({
-  db, conversationId, viewerId, targetStatus, allowRead = true, now = new Date(),
+  db, conversationId, viewerId, targetStatus, allowRead = true, markSeen = false, now = new Date(),
 }) {
   const { Op } = db.Sequelize || require('sequelize');
   const messages = await db.Message.findAll({
     where: {
       conversation_id: conversationId,
       sender_id: { [Op.ne]: viewerId },
+      // Só o que ainda pode mudar: não lida OU ainda não vista.
+      [Op.or]: [{ status: { [Op.ne]: MESSAGE_STATUS.READ } }, { seen_at: null }],
     },
   });
 
@@ -106,12 +108,19 @@ async function applyStatusToConversation({
   let finalStatus = null;
 
   for (const message of messages) {
-    const patch = buildStatusPatch(message, targetStatus, { allowRead, now });
-    if (!patch) continue;
+    const statusPatch = buildStatusPatch(message, targetStatus, { allowRead, now });
+    const patch = statusPatch ? { ...statusPatch } : {};
+    // `seen_at` é o "visto" do DESTINATÁRIO (zera o contador de não lidas) e
+    // vale mesmo com Modo Discreto — o discreto só esconde o recibo azul.
+    if (markSeen && !message.seen_at) patch.seen_at = now;
+    if (!Object.keys(patch).length) continue;
+
     await message.update(patch);
-    updatedIds.push(message.id);
-    senderIds.add(String(message.sender_id));
-    finalStatus = patch.status;
+    if (statusPatch) {
+      updatedIds.push(message.id);
+      senderIds.add(String(message.sender_id));
+      finalStatus = statusPatch.status;
+    }
   }
 
   return { updatedIds, status: finalStatus, senderIds: Array.from(senderIds) };
@@ -138,7 +147,7 @@ async function markRead({ db, io, conversationId, readerId, otherUserId }) {
   const target = allowRead ? MESSAGE_STATUS.READ : MESSAGE_STATUS.DELIVERED;
 
   const result = await applyStatusToConversation({
-    db, conversationId, viewerId: readerId, targetStatus: target, allowRead,
+    db, conversationId, viewerId: readerId, targetStatus: target, allowRead, markSeen: true,
   });
 
   if (result.updatedIds.length) {

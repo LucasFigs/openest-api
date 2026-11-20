@@ -226,3 +226,48 @@ test('mensagem nova nasce com status "sent" (1 check)', async () => {
   await socket.handlers.send_message({ conversation_id: 10, content: 'oi' }, () => {});
   assert.equal(ctx.created[0].status, 'sent');
 });
+
+// --- Foto de visualização única via socket ---------------------------------
+test('mark_view_once_opened devolve a URL no ack (abertura única)', async () => {
+  const ctx = createDeps();
+  const chamadas = [];
+  ctx.deps.viewOnce = {
+    openViewOnce: async (args) => {
+      chamadas.push(args);
+      return { message_id: 5, conversation_id: 10, url: 'https://x/foto.jpg', caption: null };
+    },
+  };
+  const { socket } = await connect('valid', ctx);
+
+  let ack = null;
+  await socket.handlers.mark_view_once_opened({ message_id: 5 }, (r) => { ack = r; });
+  assert.equal(ack.ok, true);
+  assert.equal(ack.url, 'https://x/foto.jpg');
+  assert.equal(chamadas[0].userId, 'u1', 'o usuário vem do JWT, nunca do payload');
+  assert.equal(chamadas[0].messageId, 5);
+});
+
+test('mark_view_once_opened: segunda abertura responde o código do bloqueio', async () => {
+  const ctx = createDeps();
+  ctx.deps.viewOnce = {
+    openViewOnce: async () => {
+      const err = new Error('Esta foto já foi aberta.');
+      err.code = 'already_opened';
+      throw err;
+    },
+  };
+  const { socket } = await connect('valid', ctx);
+
+  let ack = null;
+  await socket.handlers.mark_view_once_opened({ message_id: 5 }, (r) => { ack = r; });
+  assert.equal(ack.ok, false);
+  assert.equal(ack.code, 'already_opened');
+  assert.equal(ack.url, undefined, 'nunca devolve a URL de novo');
+});
+
+test('mark_view_once_opened sem id é recusado', async () => {
+  const { socket } = await connect('valid');
+  let ack = null;
+  await socket.handlers.mark_view_once_opened({}, (r) => { ack = r; });
+  assert.equal(ack.ok, false);
+});

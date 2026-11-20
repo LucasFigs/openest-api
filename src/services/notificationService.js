@@ -45,7 +45,7 @@ async function pushToUser(userId, payload) {
 
 // Nova mensagem: avisa o destinatário pela sala pessoal do socket
 // (`user_<id>`) e por push. Nunca lança — a mensagem já foi salva.
-async function notifyNewMessage({ io, conversationId, senderId, senderName, senderAvatar, recipientId, content, isImage = false }) {
+async function notifyNewMessage({ io, conversationId, senderId, senderName, senderAvatar, recipientId, content, isImage = false, isViewOnce = false }) {
   try {
     const [recipient, sender] = await Promise.all([
       db.User.findByPk(recipientId, { attributes: ['id', 'modo_discreto'] }),
@@ -62,6 +62,7 @@ async function notifyNewMessage({ io, conversationId, senderId, senderName, send
       senderAvatar: senderAvatar || sender?.foto_url || null,
       content,
       isImage,
+      isViewOnce,
       recipientDiscreet: !!recipient?.modo_discreto,
     });
 

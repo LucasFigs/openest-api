@@ -43,6 +43,32 @@ module.exports = (sequelize, DataTypes) => {
     read_at: {
       type: DataTypes.DATE,
       allowNull: true
+    },
+    // Foto de visualização única: o destinatário abre UMA vez e acabou.
+    is_view_once: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
+    is_opened: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
+    viewed_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    // Legenda opcional de uma foto.
+    caption: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    // Quando o DESTINATÁRIO viu a mensagem (independe do Modo Discreto, que
+    // só esconde o recibo do remetente). Alimenta o contador de não lidas.
+    seen_at: {
+      type: DataTypes.DATE,
+      allowNull: true
     }
   }, {
     sequelize,

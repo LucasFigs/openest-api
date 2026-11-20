@@ -20,6 +20,8 @@
 const jwt = require('jsonwebtoken');
 const messageStatus = require('./services/messageStatus');
 const { userRoom, chatRoom } = require('./utils/rooms');
+const { serializeMessage } = require('./services/messageSerializer');
+const viewOnceService = require('./services/viewOnce');
 
 function defaultVerifyToken(token) {
   return new Promise((resolve, reject) => {
@@ -36,6 +38,7 @@ function setupSocket(io, deps = {}) {
   const verifyToken = deps.verifyToken || defaultVerifyToken;
   const logger = deps.logger || console;
   const status = deps.messageStatus || messageStatus;
+  const viewOnce = deps.viewOnce || viewOnceService;
 
   // Um usuário está "conectado" se tem algum socket na sala pessoal.
   const isUserOnline = (userId) => {
@@ -149,8 +152,9 @@ function setupSocket(io, deps = {}) {
           status: status.MESSAGE_STATUS.SENT, // 1 check cinza
         });
 
-        io.to(chatRoom(conversationId)).emit('new_message', newMessage);
-        reply({ ok: true, message: newMessage });
+        const publicMessage = serializeMessage(newMessage);
+        io.to(chatRoom(conversationId)).emit('new_message', publicMessage);
+        reply({ ok: true, message: publicMessage });
 
         // Destinatário com a conversa ABERTA ⇒ já foi LIDA (2 checks azuis,
         // salvo Modo Discreto). Só conectado ⇒ ENTREGUE (2 checks cinzas).
@@ -258,6 +262,28 @@ function setupSocket(io, deps = {}) {
     // clientes novos, `mark_read` fica para os que já estão publicados.
     socket.on('mark_read', handleMarkRead);
     socket.on('mark_messages_read', handleMarkRead);
+
+    // Foto de VISUALIZAÇÃO ÚNICA: o destinatário toca para abrir. A URL vem
+    // no ack UMA vez; os dois lados recebem `message_view_once_opened`.
+    socket.on('mark_view_once_opened', async (data, ack) => {
+      const reply = toAck(ack);
+      const messageId = data && (data.message_id ?? data.messageId);
+      if (messageId == null) return reply({ ok: false, error: 'Mensagem inválida' });
+      try {
+        const result = await viewOnce.openViewOnce({
+          db, io, messageId, userId: socket.user.id,
+          getAccess: notifications.getConversationAccess,
+          logger,
+        });
+        return reply({ ok: true, ...result });
+      } catch (error) {
+        if (error && error.code) {
+          return reply({ ok: false, code: error.code, error: error.message });
+        }
+        logger.error('❌ Erro ao abrir visualização única:', error);
+        return reply({ ok: false, error: 'Erro ao abrir a foto' });
+      }
+    });
 
     // 4. Indicador de digitação (Task #64 / T046). O `user_id` repassado vem
     // do JWT (não do payload), e só quem está na sala da conversa avisa.
