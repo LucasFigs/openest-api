@@ -103,9 +103,13 @@ const forgotPassword = async (req, res) => {
       { bind: [email, token, expiresAt] }
     );
 
+    // O link abre a tela de recuperação do WEB (a API só responde JSON).
+    // No app, a pessoa cola o token na tela "Redefinir senha".
+    const webUrl = (process.env.WEB_APP_URL || 'http://localhost:5173').replace(/\/+$/, '');
     console.log(`--- ENVIO DE E-MAIL (MOCK) ---`);
     console.log(`Para: ${email}`);
-    console.log(`Link: http://localhost:3000/reset-password?token=${token}`);
+    console.log(`Link (web): ${webUrl}/recovery?token=${token}`);
+    console.log(`Token (app): ${token}`);
     console.log(`------------------------------`);
 
     res.json({ message: "Se este e-mail estiver cadastrado, um link de recuperação foi enviado." });
@@ -115,8 +119,16 @@ const forgotPassword = async (req, res) => {
   }
 };
 
+const MIN_PASSWORD_LENGTH = 6;
+
 const resetPassword = async (req, res) => {
-  const { token, newPassword } = req.body;
+  const { token, newPassword } = req.body || {};
+  // Mesma regra do cadastro; antes a senha nova não era validada aqui.
+  if (!token || typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({
+      error: `Informe o token e uma senha com pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+    });
+  }
   try {
     const [resetRequest] = await db.sequelize.query(
       'SELECT email, expires_at FROM password_resets WHERE token = $1',
@@ -284,20 +296,49 @@ const atualizarModoDiscreto = async (req, res) => {
   }
 };
 
+// Teto do tamanho de página da Descoberta (web e mobile pedem 10).
+const BUSCAR_LIMITE_MAX = 100;
+
+// IDs que a Descoberta deve esconder de `userId`: ele mesmo, todo perfil com
+// que já interagiu (qualquer tipo) e todo perfil com quem tem match.
+const idsJaProcessados = async (userId) => {
+  const { Op } = db.Sequelize;
+  const [interagidos, matches] = await Promise.all([
+    db.Interaction.findAll({ where: { from_user_id: userId }, attributes: ['to_user_id'] }),
+    db.Match.findAll({
+      where: { [Op.or]: [{ user1_id: userId }, { user2_id: userId }] },
+      attributes: ['user1_id', 'user2_id'],
+    }),
+  ]);
+  const ids = new Set([userId]);
+  interagidos.forEach((i) => ids.add(i.to_user_id));
+  matches.forEach((m) => ids.add(m.user1_id === userId ? m.user2_id : m.user1_id));
+  return [...ids];
+};
+
 const buscarPerfis = async (req, res) => {
   try {
     const { Op } = db.Sequelize;
     const userId = req.user.id;
 
-    const { page = 1, limit = 10, idade_min, idade_max, status } = req.query;
+    // Paginação e idades saneadas: valores inválidos (ex.: limit=abc,
+    // page=-1, idade_min=xyz) usam o padrão em vez de derrubar a query (500).
+    const inteiro = (valor, padrao, min, max) => {
+      const n = Number.parseInt(valor, 10);
+      if (!Number.isFinite(n)) return padrao;
+      return Math.min(Math.max(n, min), max);
+    };
+    const { status } = req.query;
+    const page = inteiro(req.query.page, 1, 1, 10000);
+    const limit = inteiro(req.query.limit, 10, 1, BUSCAR_LIMITE_MAX);
+    const idade_min = inteiro(req.query.idade_min, null, 18, 120);
+    const idade_max = inteiro(req.query.idade_max, null, 18, 120);
     const offset = (page - 1) * limit;
 
-    const interagidos = await db.Interaction.findAll({
-      where: { from_user_id: userId },
-      attributes: ['to_user_id']
-    });
-    const idsParaExcluir = interagidos.map(i => i.to_user_id);
-    idsParaExcluir.push(userId);
+    // Nunca devolve quem eu já processei: qualquer interação minha (like,
+    // pass — o bloqueio também é gravado como pass) e quem já é meu match
+    // (mesmo que a curtida tenha sido desfeita e o match mantido).
+    const idsParaExcluir = await idsJaProcessados(userId);
 
     let whereClause = {
       id: { [Op.notIn]: idsParaExcluir },
@@ -309,12 +350,12 @@ const buscarPerfis = async (req, res) => {
       whereClause.birth_date = {};
 
       if (idade_min) {
-        const dataLimiteMax = new Date(hoje.getFullYear() - parseInt(idade_min), hoje.getMonth(), hoje.getDate());
+        const dataLimiteMax = new Date(hoje.getFullYear() - idade_min, hoje.getMonth(), hoje.getDate());
         whereClause.birth_date[Op.lte] = dataLimiteMax;
       }
 
       if (idade_max) {
-        const dataLimiteMin = new Date(hoje.getFullYear() - parseInt(idade_max) - 1, hoje.getMonth(), hoje.getDate());
+        const dataLimiteMin = new Date(hoje.getFullYear() - idade_max - 1, hoje.getMonth(), hoje.getDate());
         whereClause.birth_date[Op.gte] = dataLimiteMin;
       }
     }
@@ -332,8 +373,8 @@ const buscarPerfis = async (req, res) => {
 
     const fetchPerfis = async (where) => db.User.findAndCountAll({
       where,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+      limit,
+      offset,
       attributes: ['id', 'name', 'birth_date', 'status_relacionamento', 'foto_url', 'photos', 'bio'],
       order: [['created_at', 'DESC']]
     });
@@ -373,8 +414,8 @@ const buscarPerfis = async (req, res) => {
     return res.status(200).json({
       total_resultados: count,
       total_paginas: Math.ceil(count / limit),
-      pagina_atual: parseInt(page),
-      hasMore: parseInt(page) < Math.ceil(count / limit),
+      pagina_atual: page,
+      hasMore: page < Math.ceil(count / limit),
       fallback_aplicado,
       perfis: perfisFormatados
     });
@@ -446,6 +487,7 @@ module.exports = {
   resetPassword,
   uploadPhoto,
   buscarPerfis,
+  idsJaProcessados,
   obterPerfil,
   atualizarPerfil,
   atualizarModoDiscreto,

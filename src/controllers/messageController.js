@@ -17,6 +17,14 @@ if (!User) { const userModel = require('../models/user'); User = userModel(db.se
 const { notifyNewMessage } = require('../services/notificationService');
 const { getOtherParticipantId } = require('../services/notificationContent');
 const messageStatus = require('../services/messageStatus');
+const {
+  serializeMessage, parseMeeting, buildMeetingContent, INVITE_TAG, INVITE_REJECTED_TEXT,
+} = require('../services/messageSerializer');
+const { findReplyTarget, replyInclude } = require('../services/replies');
+const viewOnce = require('../services/viewOnce');
+
+// multipart/form-data manda tudo como string: 'true' | '1' | 'on' → true.
+const toBool = (value) => value === true || ['true', '1', 'on'].includes(String(value).toLowerCase());
 
 // Confirma que o usuário logado participa da conversa e devolve o outro id.
 async function resolveParticipants(conversationId, userId) {
@@ -67,7 +75,7 @@ exports.marcarComoLida = async (req, res) => {
 
 exports.sendMessage = async (req, res) => {
   try {
-    const { conversation_id, content } = req.body;
+    const { conversation_id, content, reply_to_id } = req.body;
     const sender_id = req.user.id;
     const conversation = await Conversation.findByPk(conversation_id);
     if (!conversation) return res.status(404).json({ message: "Conversa não encontrada" });
@@ -79,10 +87,15 @@ exports.sendMessage = async (req, res) => {
     const recipientId = getOtherParticipantId(match, sender_id);
     if (!recipientId) return res.status(403).json({ error: "Você não participa desta conversa" });
 
-    const newMessage = await Message.create({ conversation_id, sender_id, content });
+    // Resposta com citação: só vale uma mensagem da MESMA conversa.
+    const citada = await findReplyTarget({ Message, User, conversationId: conversation_id, replyToId: reply_to_id });
+    const newMessage = await Message.create({
+      conversation_id, sender_id, content, reply_to_id: citada ? citada.id : null,
+    });
+    const publica = serializeMessage(newMessage, citada);
 
     const io = req.app.get('socketio'); 
-    io.to(`chat_${conversation_id}`).emit('new_message', newMessage);
+    io.to(`chat_${conversation_id}`).emit('new_message', publica);
     // Sem await: o push é enviado em segundo plano e nunca derruba a resposta.
     notifyNewMessage({ io, conversationId: conversation_id, senderId: sender_id, senderName: req.user.name, senderAvatar: req.user.foto_url, recipientId, content });
 
@@ -92,13 +105,17 @@ exports.sendMessage = async (req, res) => {
       db, io, conversationId: conversation_id, readerId: sender_id, otherUserId: recipientId,
     }).catch((e) => console.error('Erro ao marcar lidas ao responder:', e.message));
 
-    return res.status(201).json(newMessage);
+    return res.status(201).json(publica);
   } catch (error) { return res.status(500).json({ error: error.message }); }
 };
 
 exports.sendImageMessage = async (req, res) => {
   try {
     const { conversation_id } = req.body;
+    const isViewOnce = toBool(req.body.is_view_once);
+    const caption = typeof req.body.caption === 'string' && req.body.caption.trim()
+      ? req.body.caption.trim().slice(0, 1000)
+      : null;
     const sender_id = req.user.id;
     if (!req.file) return res.status(400).json({ error: "Nenhuma imagem foi enviada" });
 
@@ -112,13 +129,20 @@ exports.sendImageMessage = async (req, res) => {
     const recipientId = getOtherParticipantId(match, sender_id);
     if (!recipientId) return res.status(403).json({ error: "Você não participa desta conversa" });
 
-    const newMessage = await Message.create({ conversation_id, sender_id, content: imageUrl });
+    const citada = await findReplyTarget({ Message, User, conversationId: conversation_id, replyToId: req.body.reply_to_id });
+    const newMessage = await Message.create({
+      conversation_id, sender_id, content: imageUrl, caption, is_view_once: isViewOnce,
+      reply_to_id: citada ? citada.id : null,
+    });
+    const publica = serializeMessage(newMessage, citada);
 
+    // Visualização única: a URL NÃO vai no new_message, nem na resposta, nem
+    // na notificação — só na abertura (PATCH /mensagens/:id/open-view-once).
     const io = req.app.get('socketio'); 
-    io.to(`chat_${conversation_id}`).emit('new_message', newMessage);
-    notifyNewMessage({ io, conversationId: conversation_id, senderId: sender_id, senderName: req.user.name, senderAvatar: req.user.foto_url, recipientId, content: imageUrl, isImage: true });
+    io.to(`chat_${conversation_id}`).emit('new_message', publica);
+    notifyNewMessage({ io, conversationId: conversation_id, senderId: sender_id, senderName: req.user.name, senderAvatar: req.user.foto_url, recipientId, content: isViewOnce ? null : imageUrl, isImage: true, isViewOnce });
 
-    return res.status(201).json(newMessage);
+    return res.status(201).json(publica);
   } catch (error) { return res.status(500).json({ error: error.message }); }
 };
 
@@ -146,9 +170,32 @@ exports.getChatMessages = async (req, res) => {
       }
     }
 
-    const { count, rows } = await Message.findAndCountAll({ where: { conversation_id: id }, limit, offset, order: [['id', 'DESC']] });
-    return res.json({ messages: rows, pagination: { total: count, page, limit, hasNext: count > (offset + limit) } });
+    // Cada mensagem já vem com a citada (resposta estilo WhatsApp).
+    const { count, rows } = await Message.findAndCountAll({
+      where: { conversation_id: id }, limit, offset, order: [['id', 'DESC']],
+      include: replyInclude(Message, User), distinct: true,
+    });
+    return res.json({ messages: rows.map((m) => serializeMessage(m)), pagination: { total: count, page, limit, hasNext: count > (offset + limit) } });
   } catch (error) { return res.status(500).json({ error: error.message }); }
+};
+
+// PATCH /api/mensagens/:id/open-view-once — o destinatário abre a foto.
+// Devolve a URL UMA vez; depois disso, 410 para sempre.
+exports.abrirVisualizacaoUnica = async (req, res) => {
+  try {
+    const result = await viewOnce.openViewOnce({
+      db,
+      io: req.app.get('socketio'),
+      messageId: req.params.id,
+      userId: req.user.id,
+    });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    if (error instanceof viewOnce.ViewOnceError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    return res.status(500).json({ error: error.message });
+  }
 };
 
 exports.deleteMessage = async (req, res) => {
@@ -160,7 +207,12 @@ exports.deleteMessage = async (req, res) => {
     if (message.sender_id !== userId) return res.status(403).json({ error: "Permissão negada" });
 
     const conversationId = message.conversation_id;
-    await message.update({ content: "🚫 Mensagem apagada" });
+    const midiaPendente = message.is_view_once && !message.is_opened ? message.content : null;
+    await message.update({ content: "🚫 Mensagem apagada", caption: null, is_view_once: false });
+    if (midiaPendente) {
+      viewOnce.defaultDestroyMedia(midiaPendente)
+        .catch((e) => console.error('Erro ao apagar mídia de visualização única:', e.message));
+    }
     
     const io = req.app.get('socketio');
     io.to(`chat_${conversationId}`).emit('message_deleted', id);
@@ -176,12 +228,25 @@ exports.responderConvite = async (req, res) => {
     const message = await Message.findByPk(id);
     if (!message) return res.status(404).json({ error: "Mensagem não encontrada" });
 
-    const novoStatus = resposta === 'aceite' ? '✅ Convite Aceite!' : '❌ Convite Recusado';
+    // Só quem participa da conversa responde, e nunca o próprio autor.
+    const access = await resolveParticipants(message.conversation_id, req.user.id);
+    if (!access) return res.status(403).json({ error: "Você não participa desta conversa" });
+    if (String(message.sender_id) === String(req.user.id)) {
+      return res.status(403).json({ error: "Quem enviou o convite não pode respondê-lo" });
+    }
+
+    // Aceito: vira "Encontro marcado" e GUARDA data/local do convite (antes o
+    // texto fixo "✅ Convite Aceite!" apagava esses dados).
+    const convite = parseMeeting(message.content, INVITE_TAG);
+    const novoStatus = resposta === 'aceite' ? buildMeetingContent(convite) : INVITE_REJECTED_TEXT;
     await message.update({ content: novoStatus });
 
+    const publica = serializeMessage(message);
     const io = req.app.get('socketio');
-    io.to(`chat_${message.conversation_id}`).emit('invite_updated', { messageId: id, eventId: id, status: resposta });
+    io.to(`chat_${message.conversation_id}`).emit('invite_updated', {
+      messageId: id, eventId: id, status: resposta, content: publica.content, meeting: publica.meeting || null,
+    });
 
-    return res.json({ success: true, message: novoStatus });
+    return res.json({ success: true, message: novoStatus, data: publica });
   } catch (error) { return res.status(500).json({ error: error.message }); }
 };

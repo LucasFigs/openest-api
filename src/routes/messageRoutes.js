@@ -11,6 +11,9 @@ router.post('/mensagens/imagem', authMiddleware, uploadCloud.single('image'), me
 
 router.post('/mensagens/:id/responder', authMiddleware, messageController.responderConvite);
 
+// Foto de visualização única: abre UMA vez (devolve a URL) e nunca mais.
+router.patch('/mensagens/:id/open-view-once', authMiddleware, messageController.abrirVisualizacaoUnica);
+
 router.get('/:id/mensagens', authMiddleware, messageController.getChatMessages);
 
 // Confirmação de entrega/leitura (checks estilo WhatsApp).
